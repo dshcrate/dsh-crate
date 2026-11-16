@@ -14,6 +14,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { describeFetchFailure, forgetCatalog, loadRegistry, pluginPreviousNpm } from '../src/registry.ts'
+import { exportLogs } from '../src/log.ts'
 import { configuredProxy, marketFetch } from '../src/net.ts'
 
 /**
@@ -107,6 +108,10 @@ const ok = (body: unknown): Response =>
   new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
 
 describe('loadRegistry', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('passes through source download dates without inventing them for legacy entries', async () => {
     const stats = { downloads: 42, downloadsStart: '2026-08-25', downloadsEnd: '2026-09-23', downloadsCheckedAt: '2026-09-24' }
     scriptedFetch(ok({
@@ -120,33 +125,6 @@ describe('loadRegistry', () => {
     expect(registry.plugins[1]).not.toHaveProperty('downloadsEnd')
     expect(registry.plugins[1]).not.toHaveProperty('downloadsCheckedAt')
     expect(registry.plugins[1]?.downloads).toBe(0)
-  })
-
-  it('maps a crate catalog through the adapter', async () => {
-    // 真实来源换成了 crate 的 entries 结构；分派按结构判断，所以这里既
-    // 验证适配器被用到，也验证旧夹具仍走旧路径。
-    scriptedFetch(ok({
-      schemaVersion: 2,
-      generatedAt: '2026-11-01T06:13:59.996Z',
-      entries: [{
-        i: 'EthanYoQ/AI-Novel-Writer',
-        n: 'AI-Novel-Writer',
-        d: '安装专用 AI 小说创作预设',
-        s: 1856,
-        t: 'cordis-plugin',
-        vr: '0.1.0',
-        cmd: 'dsh plugin --profile web add @ethanyoq/dsh-ai-novel-writer',
-      }],
-    }))
-    const registry = await loadRegistry()
-    expect(registry.plugins[0]).toMatchObject({
-      name: 'AI-Novel-Writer',
-      owner: 'EthanYoQ',
-      url: 'https://github.com/EthanYoQ/AI-Novel-Writer',
-      category: 'plugin',
-      npm: '@ethanyoq/dsh-ai-novel-writer',
-    })
-    expect(registry.count).toBe(1)
   })
 
   it('goes to the network every single time it is asked', async () => {
@@ -186,9 +164,10 @@ describe('loadRegistry', () => {
     expect(stub).toHaveBeenCalledTimes(2)
   })
 
-  it('gives up after the second attempt rather than hammering', async () => {
-    // crate 只有一份目录地址，两次尝试之后就不再重试：失败就是失败，
-    // 多打几次只会让「连不上」这三个字来得更慢。
+  it('gives up after the second attempt at each source rather than hammering', async () => {
+    // This fork has ONE catalog address per region (src/regions.ts), so a dead
+    // network is exactly two attempts at that source — not the four an
+    // upstream-shaped fallback list would spend (#891).
     const stub = scriptedFetch(new Error('fetch failed'))
     await expect(loadRegistry()).rejects.toThrow(/fetch failed/)
     expect(stub).toHaveBeenCalledTimes(2)
@@ -231,6 +210,39 @@ describe('loadRegistry', () => {
     scriptedFetch(new Error('The operation was aborted due to timeout'))
     await expect(loadRegistry()).rejects.toThrow(/aborted due to timeout.*\ds, 2 attempts/s)
   })
+
+  /**
+   * A successful load used to leave nothing behind, which is what made a slow
+   * one impossible to report. #1181 measured thirteen, twenty and forty
+   * seconds on the same machine, five minutes on the run that failed, and
+   * every export said the buffer starts empty. The line has to be there when
+   * it is slow, and absent when it is not — a log that fires on every entry
+   * into the market is worse than one that fires on none.
+   */
+  it('leaves a line when a successful load crossed the slow threshold', async () => {
+    scriptedFetch(ok(CATALOG))
+    const clock = vi.spyOn(Date, 'now')
+    const started = 1_760_000_000_000
+    clock.mockReturnValueOnce(started)
+    clock.mockReturnValue(started + 6_100)
+    await loadRegistry('global')
+    expect(exportLogs({})).toContain('answered in 6.1s')
+  })
+
+  it('says nothing when the catalog arrives quickly', async () => {
+    scriptedFetch(ok(CATALOG))
+    const clock = vi.spyOn(Date, 'now')
+    const started = 1_760_000_000_000
+    clock.mockReturnValueOnce(started)
+    clock.mockReturnValue(started + 900)
+    // "Says nothing" has to mean "adds nothing", not "adds no line saying
+    // 0.9s": the buffer is shared by the whole file, so a slower neighbour's
+    // line is still in the export here, and matching on one duration would
+    // also accept any other duration the quick path might start printing.
+    const before = exportLogs({})
+    await loadRegistry('global')
+    expect(exportLogs({})).toBe(before)
+  })
 })
 
 describe('loadRegistry download regions', () => {
@@ -246,44 +258,137 @@ describe('loadRegistry download regions', () => {
     return stub
   }
 
-  it('reads the catalog from crate in the global region', async () => {
+  it('reads the catalog from the official domain in the global region', async () => {
+    // crate 只公开一份 JSON，两个地区都指向它（src/regions.ts）。
     const stub = byUrl([[/dshcrate\.com/, ok(CATALOG)]])
     await loadRegistry('global')
-    expect(String(stub.mock.calls[0]?.[0])).toContain('dshcrate.com/data/dsh-crate.json')
+    expect(String(stub.mock.calls[0]?.[0])).toBe('https://dshcrate.com/data/dsh-crate.json')
   })
 
-  it('reads the same crate address in the china region', async () => {
-    // 目录没有 npm 镜像包可退：地区只影响插件本身的下载线路，不影响目录地址。
+  it('uses the same one JSON in the china region, with no package route first', async () => {
+    // 上游的 china 地区先读 npm 上的目录包；crate 没有这个包，所以这里
+    // 唯一的请求就是那份 JSON —— 不能凭空多出一次镜像请求。
     const stub = byUrl([[/dshcrate\.com/, ok(CATALOG)]])
     await loadRegistry('china')
-    expect(String(stub.mock.calls[0]?.[0])).toContain('dshcrate.com/data/dsh-crate.json')
+    expect(stub.mock.calls.map(call => String(call[0]))).toEqual(['https://dshcrate.com/data/dsh-crate.json'])
   })
 
-  it('reports every attempt it made when the whole list fails', async () => {
-    byUrl([[/./, new Error('fetch failed')]])
-    await expect(loadRegistry('china')).rejects.toThrow(/2 attempts/)
+  it('reports the one source twice instead of walking a fallback list that does not exist', async () => {
+    // 单源配置下「换一个镜像」不再存在：失败就是两次尝试同一个地址，
+    // 失败信息里的次数必须与实际请求一致。
+    const stub = byUrl([[/./, new Error('fetch failed')]])
+    await expect(loadRegistry('china')).rejects.toThrow(/fetch failed.*2 attempts/)
+    expect(stub.mock.calls.map(call => String(call[0]))).toEqual([
+      'https://dshcrate.com/data/dsh-crate.json',
+      'https://dshcrate.com/data/dsh-crate.json',
+    ])
+    // 没有 npm 目录包可退，也不去别的地区借镜像。
+    expect(stub.mock.calls.map(call => String(call[0]))
+      .some(url => url.includes('dsh-plugin-catalog') || url.includes('registry.npmjs.org'))).toBe(false)
   })
 
   it('stops at its own region when that region answers (#891)', async () => {
+    // The cross-region list is a fallback, not a second opinion: a network
+    // where the official domain works must not also fetch a mirror.
     const stub = byUrl([[/dshcrate\.com/, ok(CATALOG)]])
     await loadRegistry('global')
     expect(stub).toHaveBeenCalledTimes(1)
   })
 
+  it('has no catalog package to read on past its own region with (#891)', async () => {
+    // 上游在这种情况下会再去 npm 要目录包；crate 没有发布这个包，所以
+    // 失败的形状就是两次尝试同一个地址，而不是四次尝试两个来源。
+    const stub = byUrl([[/./, new Error('fetch failed')]])
+    await expect(loadRegistry('global')).rejects.toThrow(/2 attempts/)
+    const asked = stub.mock.calls.map(call => String(call[0]))
+    // global 自己的唯一来源，两次；没有任何后续来源。
+    expect(asked).toEqual([
+      'https://dshcrate.com/data/dsh-crate.json',
+      'https://dshcrate.com/data/dsh-crate.json',
+    ])
+  })
+
+  it('says nothing about a later source when the region has only one (#1117)', async () => {
+    // 单源配置下不存在「某个镜像失败、但后面的来源救回来了」这种静默故障，
+    // 所以也不该打一条「reading from a later source」的日志。
+    byUrl([[/./, new Error('getaddrinfo ENOTFOUND dshcrate.com')]])
+    const log = await import('../src/log.ts')
+    const spy = vi.spyOn(log, 'logEvent').mockImplementation(() => undefined)
+    try {
+      await expect(loadRegistry('china')).rejects.toThrow(/ENOTFOUND/)
+      const lines = spy.mock.calls.map(([level, event, detail]) => `${String(level)} ${String(event)} ${String(detail)}`)
+      expect(lines.some(line => line.includes('reading from a later source'))).toBe(false)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('stays quiet when the retry is what saved the source (#1117)', async () => {
+    // One failure followed by a success on the same source is the retry
+    // doing its job. Logging that would put a warning in every imported log.
+    let calls = 0
+    vi.stubGlobal('fetch', vi.fn(() => {
+      calls += 1
+      return calls === 1 ? Promise.reject(new Error('fetch failed')) : Promise.resolve(ok(CATALOG).clone())
+    }))
+    const log = await import('../src/log.ts')
+    const spy = vi.spyOn(log, 'logEvent').mockImplementation(() => undefined)
+    try {
+      expect((await loadRegistry('global')).plugins).toHaveLength(1)
+      const lines = spy.mock.calls.map(([level, event, detail]) => `${String(level)} ${String(event)} ${String(detail)}`)
+      expect(lines.some(line => line.includes('reading from a later source'))).toBe(false)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('keeps the one source\'s own reason in the message (#750)', async () => {
+    // The reported failure was that the message named the fallback's timeout
+    // instead of the primary's actionable reason. With a single source there
+    // is no fallback to lose it to, but the message still has to name both the
+    // reason AND the address that said it — that is what a bug report ships.
+    byUrl([[/./, new Error('no new data for 15s while downloading the catalog (received 4096 bytes)')]])
+    const message = await loadRegistry('global').then(
+      () => { throw new Error('expected the whole list to fail') },
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    )
+    // The last failure keeps the leading slot (that is what the client shows),
+    // and the first attempt's reason survives in `earlier:`.
+    expect(message.startsWith('no new data for 15s while downloading the catalog')).toBe(true)
+    expect(message).toContain('earlier:')
+    expect(message).toContain('url:https://dshcrate.com/data/dsh-crate.json')
+    expect(message.indexOf('earlier:')).toBeLessThan(message.indexOf('url:https://dshcrate.com/data/dsh-crate.json'))
+  })
+
   it('never sends one origin the validator another one issued', async () => {
     // A validator is scoped to the URL that issued it. Carried across a
-    // region switch it could earn a 304 from an origin whose body we have
+    // catalog override it could earn a 304 from an origin whose body we have
     // never seen, and the market would render a catalog it never received.
     byUrl([[/dshcrate\.com/, okTagged(CATALOG, 'W/"one"')]])
     await loadRegistry('global')
-    const stub = byUrl([[/dshcrate\.com/, ok(CATALOG)]])
-    await loadRegistry('china')
     const etagOf = (call: unknown[]): string | undefined =>
       ((call[1] ?? {}) as { headers?: Record<string, string> }).headers?.['if-none-match']
-    // The catalog URL is the same in both regions, so the validator it issued
-    // is exactly what it is for — withholding it would re-download a
-    // megabyte to be told nothing changed.
-    expect(etagOf(stub.mock.calls[0]!)).toBe('W/"one"')
+
+    const saved = process.env.DSHM_REGISTRY_URL
+    process.env.DSHM_REGISTRY_URL = 'https://mirror.example/catalog.json'
+    try {
+      // A DIFFERENT source, so the official origin's ETag must not ride along
+      // on it — that is the request that could earn a "not modified" from
+      // something whose body we have never seen.
+      const other = byUrl([[/mirror\.example/, new Error('fetch failed')]])
+      await expect(loadRegistry('global')).rejects.toThrow(/fetch failed/)
+      expect(etagOf(other.mock.calls[0]!)).toBeUndefined()
+    } finally {
+      if (saved === undefined) delete process.env.DSHM_REGISTRY_URL
+      else process.env.DSHM_REGISTRY_URL = saved
+    }
+
+    // The official address, though, is the same URL it was. Re-sending the
+    // validator it issued is exactly what it is for; withholding it would
+    // re-download the catalog to be told nothing changed.
+    const again = byUrl([[/dshcrate\.com/, ok(CATALOG)]])
+    await loadRegistry('global')
+    expect(etagOf(again.mock.calls[0]!)).toBe('W/"one"')
   })
 })
 

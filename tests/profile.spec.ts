@@ -1771,7 +1771,7 @@ describe('dropReleaseAgeExcludes with keepVersion, the update side (#1093)', () 
     const original = [
       'minimumReleaseAgeExclude:',
       '  - typescript@1.0.0 || 1.1.0',
-      '  - dshmarket',
+      '  - dsh-crate',
       '',
     ].join('\n')
     const dir = workspace(original)

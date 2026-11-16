@@ -421,7 +421,7 @@ export async function openMarketUi(page: Page): Promise<void> {
     await settings.click()
   } else {
     // dsh 0.2.1 moved Settings off the sidebar into the account menu
-    // (`Settings ⌥⌘,`); the dialog and its Plugin Market section are the same.
+    // (`Settings ⌥⌘,`); the dialog and its Plugin Crate section are the same.
     await account.click()
     await page.getByRole('menuitem', { name: /^(设置|Settings)/ }).first().click()
   }
@@ -450,7 +450,7 @@ export async function openMarketUi(page: Page): Promise<void> {
       .first().isVisible().catch(() => false)
     throw new Error(gateUp
       ? 'market root never mounted: a start gate is still up, so the click was swallowed (#1033)'
-      : 'market root never mounted: the Plugin Market entry did not open the market')
+      : 'market root never mounted: the Plugin Crate entry did not open the market')
   }
 }
 

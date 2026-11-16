@@ -79,11 +79,11 @@ export function HostRecoveryBanner(props: HostRecoveryBannerProps): ReactElement
   // already made is the nagging this project's own rules warn about.
   const [dismissed, setDismissed] = useState(false)
   useEffect(() => {
-    try { setDismissed(sessionStorage.getItem('dshm-host-recovery-dismissed') === String(bootId ?? '')) } catch { /* storage unavailable */ }
+    try { setDismissed(window.sessionStorage.getItem('dshm-host-recovery-dismissed') === String(bootId ?? '')) } catch { /* storage unavailable */ }
   }, [bootId])
   const dismiss = useCallback(() => {
     setDismissed(true)
-    try { sessionStorage.setItem('dshm-host-recovery-dismissed', String(bootId ?? '')) } catch { /* storage unavailable */ }
+    try { window.sessionStorage.setItem('dshm-host-recovery-dismissed', String(bootId ?? '')) } catch { /* storage unavailable */ }
   }, [bootId])
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 /**
- * Registry access: crate 的目录（dsh-crate.json）每次请求都重新拉取。
- * 这里只负责抓取、重试、校验与 304 复用；字段映射见 src/crate-catalog.ts。
+ * Registry access: the curated list from awesome-dsh-plugin.com, fetched
+ * fresh on every request. See `loadRegistry` for why there is nothing
+ * behind it any more.
  */
 
 import { BODY_STALL_TIMEOUT_MS, HEADERS_TIMEOUT_MS, readBodyWhileProgressing } from './body-progress.ts'
@@ -8,8 +9,20 @@ import { logEvent } from './log.ts'
 import { configuredProxy, marketFetch } from './net.ts'
 import { catalogFromPackage } from './catalog-npm.ts'
 import { activeRegion, catalogSourcesFor, routesFor, type CatalogSource, type Region } from './regions.ts'
-import { asCrateRegistry, isCrateCatalog } from './crate-catalog.ts'
 import { NPM_NAME_RE } from './sources.ts'
+
+/**
+ * How long a successful catalog load may take before it leaves a line behind.
+ *
+ * A load that fails already documents itself: the thrown message carries the
+ * elapsed time and the attempt count. A load that SUCCEEDS carries nothing,
+ * so a market that took forty seconds and one that took two produce the same
+ * export — "(none — the buffer starts empty on every start)" — and a report
+ * cannot tell them apart (#1181: thirteen seconds, twenty, forty on the same
+ * machine, five minutes on the run that failed, all with an empty session).
+ * The threshold sits above any healthy load, so the ordinary case stays quiet.
+ */
+const SLOW_CATALOG_MS = 5_000
 
 export interface RegistryPlugin {
   name: string
@@ -45,9 +58,9 @@ export interface RegistryPlugin {
   /** When the source checked this statistic; never the client's fetch time. */
   downloadsCheckedAt?: string | null
   /**
-   * npm `latest` reported by the catalog (#348). A string when known;
-   * `null`/absent when github-only or not yet backfilled — the UI omits the
-   * byline segment rather than showing a placeholder.
+   * Registry `dist-tags.latest` from awesome-dsh-plugin (#348). A string when
+   * known; `null`/absent when github-only or not yet backfilled — the UI
+   * omits the byline segment rather than showing a placeholder.
    */
   version?: string | null
   /**
@@ -60,9 +73,9 @@ export interface RegistryPlugin {
   install: string
   added: string
   /**
-   * Catalog-side deprecation flags (#60): an optional extra on top of the
-   * core contract, absent for every normal entry — the market only consumes
-   * them, so a catalog without the fields behaves exactly as before.
+   * Catalog-side deprecation flags (#60): supplied by awesome-dsh-plugin,
+   * absent for every normal entry — the market only consumes them, so a
+   * catalog without the fields behaves exactly as before.
    */
   deprecated?: boolean
   /** Catalog name of the suggested replacement plugin, when deprecated. */
@@ -211,19 +224,6 @@ function sourceKey(source: CatalogSource): string {
   return source.kind === 'npm' ? `npm:${source.registry}/${source.pkg}` : `url:${source.url}`
 }
 
-/**
- * 目录载荷分派：按结构选适配器，而不是按地区或地址。
- *
- * crate 的载荷带 `entries`，旧的目录带 `plugins`；两套结构各自校验，夹具
- * 与真实数据都不会误入对方的分支。
- *
- * @param value - 已经 `JSON.parse` 过的目录载荷。
- * @throws 两个适配器都可能因为数据不可用而抛出，异常留给调用方重试。
- */
-function parseCatalog(value: unknown): Registry {
-  return isCrateCatalog(value) ? asCrateRegistry(value) : asRegistry(value)
-}
-
 /** A parsed catalog, or a thrown explanation of why it is not one. */
 function asRegistry(value: unknown): Registry {
   const data = value as Registry
@@ -307,6 +307,14 @@ export async function loadRegistry(region: Region = activeRegion()): Promise<Reg
       if (sourceIndex >= ownSources) {
         logEvent('warn', 'registry', `catalog: the ${region} sources did not answer; read the catalog package from ${key} instead (#891)`)
       }
+      // Success is silent by default, which is what makes a slow one
+      // undiagnosable: the export says the same thing whether the market
+      // appeared in two seconds or in forty (#1181). One line above the
+      // threshold, none below it.
+      const elapsed = Date.now() - started
+      if (elapsed >= SLOW_CATALOG_MS) {
+        logEvent('info', 'registry', `catalog: ${key} answered in ${(elapsed / 1000).toFixed(1)}s after ${String(attempts)} request attempt(s)`)
+      }
       return data
     }
     // Two attempts each. A catalog fetch crossing a long, lossy path fails
@@ -365,7 +373,7 @@ export async function loadRegistry(region: Region = activeRegion()): Promise<Reg
           return servedBy(reusable.data)
         }
         if (!res.ok) throw new Error(`HTTP ${String(res.status)}`)
-        const data = parseCatalog(JSON.parse(new TextDecoder().decode(
+        const data = asRegistry(JSON.parse(new TextDecoder().decode(
           await readBodyWhileProgressing(res, BODY_STALL_TIMEOUT_MS),
         )))
         served = {

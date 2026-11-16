@@ -66,7 +66,7 @@ describe('the stylesheet does not paint with ink', () => {
  * hosts the whole UI in one web view inside one cgroup, the window, the
  * compositor and the tray went with it; the machine had to be rebooted.
  *
- * Measured on dshmarket 1.66.47: removing this one declaration from
+ * Measured on dsh-crate 1.66.47: removing this one declaration from
  * `.themePreviewAction,.themePreviewCount` is the difference between that and
  * a flat ~740 MB. The badge keeps its 78%-opaque scrim, so the label stays
  * legible without the blur.

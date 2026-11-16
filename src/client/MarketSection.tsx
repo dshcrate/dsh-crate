@@ -1,7 +1,7 @@
 /**
  * The Market settings section: Discover / Favorites / Themes / Installed tabs over the
  * /dsh-crate/* host routes, with install/update/uninstall flows and the
- * pending-restart bookkeeping in sessionStorage.
+ * pending-restart bookkeeping in window.sessionStorage.
  */
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactElement, type ReactNode, type Ref } from 'react'
 import { createPortal } from 'react-dom'
@@ -42,11 +42,15 @@ import css from './Market.module.css'
 import { MARK_FRAME, MARK_PATH_D, MARK_STROKE_WIDTH, MARK_VIEW_BOX } from './market-mark.ts'
 import { CommentsModal } from './CommentsModal.tsx'
 import { SearchInput } from './SearchInput.tsx'
+import { DiscoveryScan } from './discovery-scan.ts'
 import { downloadStatistic, downloadStatsText, starStatsText } from './download-stats.ts'
 import { OperationsPanel } from './OperationsPanel.tsx'
 import { applyRecovery, fetchRecovery, initialKeep, RecoveryPanel, watchRestart, type RecoveryView } from './RecoveryPanel.tsx'
 import { HostRecoveryBanner } from './HostRecoveryBanner.tsx'
+import { UpdateNotificationsPanel } from './UpdateNotificationsPanel.tsx'
+import { useUpdateNotifications, refreshUpdateNotifications, refreshUpdateNotificationsAfterChange, checkUpdateNotifications, setUpdateNotificationsEnabled, setUpdateNotificationsIntervalHours, ignoredUpdatesForBoot, notifyUpdatePreferencesChanged, type UpdateNotificationsState } from './update-notifications.ts'
 import { clearSettled, drop, enqueue, patch as patchRecord, recordForUrl, restoreSettled, serializeSettled, SETTLED_STORAGE_KEY } from './operations.ts'
+import { dismissedHostIdSet, rememberDismissedHostId } from './dismissed-host.ts'
 import type { OperationRecord } from './operations.ts'
 import { Diagnostics } from './Diagnostics.tsx'
 import { exportMarketLog } from './self-check.ts'
@@ -56,10 +60,11 @@ import {
   installCommandFor, hostCompatibilityKey,
   api, applyGithubRouting, avatarColor, catalogEntryForInstalled, entryForDep, failureText, githubRouteCandidates, groupSwitchState, installedForCatalog, isGenerationSpec, isInstalled, localizeBilingual, localizeBilingualList, looksTerminal, matchInstalledName, orderedCategories, pluginCategories,
   formatCount, pageItems, pluginName, blockAliases, pluginScreenshotCandidates, pluginScreenshots, pluginsForFavorites, previewDimensionScore, queuedRowApplies, rankThemeScreenshots, readSession, safeIcon, releaseNotesHttpsImage, rememberGithubRoute, resetScreenshotsCache, resolveCatalogRestore, safeScreenshots, sanitizeReleaseNotesBody, staleFavoriteUrls, themePlugins as themePluginsOf, themeSwatch, TIME_RANGE_DAYS, visiblePlugins, restartHintKey,
+  compareInstalledRows, installedDateText,
 } from './market-data.ts'
 import type {
-ActivationInfo, ActivationState, DrainHistoryWire, DrainOperationWire, GistExportResult, InstalledMap, InstalledRepoHints, InstalledRepoIdentities, MarketStatus, Registry, RegistryPlugin,
-  HostCompatibility, HostCompatibilityMap, ScreenshotCandidate, ScreenshotMeasurement, SharedHostPackageDependencyFinding, SortDir, SortField, ThemeSnapshot, TimeRange, Translate, UpdateStatus,
+ActivationInfo, ActivationState, DrainHistoryWire, DrainOperationWire, GistExportResult, InstalledMap, InstalledRepoHints, InstalledRepoIdentities, InstalledSort, InstallStamp, MarketStatus, Registry, RegistryPlugin,
+  ScreenshotCandidate, ScreenshotMeasurement, SharedHostPackageDependencyFinding, SortDir, SortField, ThemeSnapshot, TimeRange, Translate, UpdateStatus,
 } from './market-data.ts'
 
 function isHostDependencyFinding(value: unknown): value is SharedHostPackageDependencyFinding {
@@ -81,34 +86,8 @@ const SLOW_INSTALL_SECONDS = 90
 /** How long the page keeps asking for a market DSH unloaded, and how long one ask may take (#1151). */
 const RECONNECT_BUDGET_MS = 90_000
 const RECONNECT_REQUEST_MS = 4000
+const UPDATE_CHECK_REQUEST_MS = 30_000
 const IGNORED_UPDATES_SESSION_KEY = 'dshm-updates-ignored'
-const UNAVAILABLE_HOST_COMPATIBILITY: HostCompatibility = {
-  status: 'unknown',
-  basis: 'unavailable',
-  requirement: null,
-  declarations: [],
-}
-
-/**
- * Read the update reminders dismissed for this host process. The boot id is
- * part of the value rather than the key so sessionStorage never accumulates
- * one orphaned entry per process. Invalid and stale records fail open: an
- * update reminder is safer than silently hiding one we cannot account for.
- */
-function ignoredUpdatesForBoot(boot: string): string[] {
-  const saved = readSession(IGNORED_UPDATES_SESSION_KEY)
-  const valid = saved !== null
-    && typeof saved === 'object'
-    && !Array.isArray(saved)
-    && saved.boot === boot
-    && Array.isArray(saved.names)
-    && saved.names.every((name: unknown) => typeof name === 'string' && name !== '')
-  if (!valid) {
-    try { sessionStorage.removeItem(IGNORED_UPDATES_SESSION_KEY) } catch { /* storage unavailable */ }
-    return []
-  }
-  return [...new Set(saved.names as string[])]
-}
 
 function HostDependencyDiagnostics({
   findings,
@@ -180,6 +159,17 @@ function phaseLabel(phase: NonNullable<MarketStatus['phase']>, t: Translate): st
   return t('phaseBuilding')
 }
 
+/** Reset before effects can use the new query with the previous page or limit. */
+function useResettableCount(initial: number, deps: readonly unknown[]) {
+  const [count, setCount] = useState(initial)
+  const [previousDeps, setPreviousDeps] = useState(deps)
+  if (deps.length !== previousDeps.length || deps.some((value, index) => !Object.is(value, previousDeps[index]))) {
+    setPreviousDeps(deps)
+    setCount(initial)
+  }
+  return [count, setCount] as const
+}
+
 /**
  * Page/page-size state shared by every paged list in this file (Discover,
  * Themes) — each caller owns its OWN instance (their filters are
@@ -195,10 +185,8 @@ function usePagination(count: number, resetDeps: readonly unknown[], scrollToTop
   goToPage: (next: number) => void
   changePageSize: (size: number) => void
 } {
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useResettableCount(1, resetDeps)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- resetDeps IS the intended dependency list, supplied by the caller.
-  useEffect(() => { setPage(1) }, resetDeps)
   const totalPages = Math.max(1, Math.ceil(count / pageSize))
   // Clamp in case the list shrank while the user was on a later page.
   const currentPage = Math.min(page, totalPages)
@@ -227,9 +215,7 @@ function useShownCount(count: number, resetDeps: readonly unknown[], chunk: numb
   more: number
   loadMore: () => void
 } {
-  const [limit, setLimit] = useState(chunk)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- resetDeps IS the intended dependency list, supplied by the caller.
-  useEffect(() => { setLimit(chunk) }, resetDeps)
+  const [limit, setLimit] = useResettableCount(chunk, resetDeps)
   const shown = Math.min(count, limit)
   return {
     shown,
@@ -328,10 +314,52 @@ function FilterMenu({
   )
 }
 
+/**
+ * The installed list's own order (#1142).
+ *
+ * Deliberately NOT the market's `FilterMenu`: that one sorts by downloads,
+ * stars or the catalog's collection date, and an installed package has none
+ * of the three. Same primitive, four options, one value — the list's order
+ * is a single choice, not a field plus a direction.
+ */
+function InstalledSortMenu({ value, onChange, t }: { value: InstalledSort; onChange: (sort: InstalledSort) => void; t: Translate }) {
+  const [open, setOpen] = useState(false)
+  const items = useMemo<MenuEntry[]>(() => [
+    { type: 'label', id: 'is-label', text: t('installedSortLabel') },
+    { id: 'installed:default', label: t('installedSortDefault') },
+    { id: 'installed:name', label: t('installedSortName') },
+    { id: 'installed:newest', label: t('installedSortNewest') },
+    { id: 'installed:oldest', label: t('installedSortOldest') },
+  ], [t])
+  return (
+    <Menu
+      open={open}
+      onClose={() => setOpen(false)}
+      selectedIds={['installed:' + value]}
+      onSelect={id => onChange(id.slice('installed:'.length) as InstalledSort)}
+      align="end"
+      portal
+      anchor={(
+        <Button
+          variant="outline"
+          size="sm"
+          icon={open ? <IconChevronUpOutline14 size={14} /> : <IconChevronDownOutline14 size={14} />}
+          onClick={() => setOpen(openNow => !openNow)}
+        >{t('installedSort')}</Button>
+      )}
+      items={items}
+    />
+  )
+}
+
 /** Keep an empty search actionable without changing the user's sort or block list. */
-function EmptyResults({ blocked, onClear, t }: { blocked: boolean; onClear?: () => void; t: Translate }) {
+function EmptyResults({ message, onClear, t }: {
+  message: 'empty' | 'blockedFilteredEmpty' | 'hostFilterEmpty'
+  onClear?: () => void
+  t: Translate
+}) {
   return <div className={css.empty}>
-    <div>{t(blocked ? 'blockedFilteredEmpty' : 'empty')}</div>
+    <div>{t(message)}</div>
     {onClear && <Button variant="outline" size="sm" className={css.retryBtn} onClick={onClear}>
       {t('clearFilters')}
     </Button>}
@@ -851,6 +879,11 @@ export function resetThemePreviewCache(): void {
   measuredThemePreviewResults.clear()
 }
 
+const discoveryScan = new DiscoveryScan(() => {
+  resetScreenshotsCache()
+  resetThemePreviewCache()
+})
+
 /** README fetch + geometry probes, shared across search/page remounts. */
 function measuredThemePreview(plugin: RegistryPlugin): Promise<string[]> {
   const cached = measuredThemePreviewTasks.get(plugin.url)
@@ -1326,16 +1359,22 @@ export function resetMarketPortalHost(): void {
 }
 
 /**
- * 市场品牌标记：16 视口的线条箱子，描边跟随 `currentColor`。
+ * Official-style market glyph: the shared block-grid brand mark converted to
+ * the official monochrome icon form (16×16, fill="currentColor") so it
+ * follows the active theme. Mirrors the settings-nav glyph used for the
+ * "market" section id — both now draw the geometry in market-mark.ts, so the
+ * nav entry and the section it opens cannot drift apart.
  *
- * `animated`（加载态）与 `ambient`（内容页标题）叠加同一条 3s 扫光；
- * 菜单导航与包图标保持静态，分别由 `settings-nav-icon.ts` 的 mask 与
- * `assets/logo.svg` 负责，所以这里不需要额外的静态分支。
+ * Two animated forms, differing in what they are for rather than in looks:
  *
- * 扫光靠 mask 只落在箱体线条上：一条 25° 斜向的光带在 3s 里从左侧外扫到
- * 右侧外（前 0.9s），其余 2.1s 停在画面外。渐变用 11 档 stop 近似高斯衰减
- * （σ ≈ 1.83 单位，半高宽约图标宽度的 27%），边缘没有硬边、不要窄成一条线。
- * `useId` 保证同页多个标记的 mask / gradient id 不冲突。
+ * - `animated` — the loading state. Motion is the whole signal, so under
+ *   `prefers-reduced-motion` it still moves, just without displacement.
+ * - `ambient` — the section's own heading mark. Decoration, so the same
+ *   preference stops it dead.
+ *
+ * Both draw the one timeline in the stylesheet: the grid breathes along the
+ * diagonal and the block rides in behind that wave. They share `--dshm-cycle`
+ * so the block cannot arrive after the wave it is supposed to follow.
  */
 export function MarketLogo({ size = 16, style, animated = false, ambient = false, inset = 0 }: {
   size?: number
@@ -1843,19 +1882,60 @@ function CatalogVersionMark({ version, tip }: { version: string | null | undefin
  * the Installed tab's red dot / 「更新」buttons flash off then on, and the
  * two entries disagree until both refetches finish.
  */
-let cachedRegistry: Registry | null = null
 let cachedInstalled: InstalledMap | null = null
+let cachedLocalDescriptions: Record<string, string> = {}
 let cachedRepoIdentities: InstalledRepoIdentities | null = null
 let cachedRepoHints: InstalledRepoHints | null = null
-let cachedHostCompatibility: HostCompatibilityMap = {}
-let cachedHostVersion: string | null | undefined = undefined
-/** Names with an in-flight discovery-compatibility request (module-wide). */
-const hostCompatibilityInFlight = new Set<string>()
-/** Subscribers for useSyncExternalStore — every mounted MarketSection. */
-const hostCompatibilityListeners = new Set<() => void>()
-let cachedUpdates: Record<string, UpdateStatus> = {}
-/** False until /dsh-crate/updates has answered at least once this process. */
-let cachedUpdatesReady = false
+interface UpdateCheckSnapshot {
+  updates: Record<string, UpdateStatus>
+  installed: InstalledMap
+  ready: boolean
+  /** null for a whole request failure, a set for failed packages only. */
+  failed: ReadonlySet<string> | null
+}
+
+const emptyUpdateCheck: UpdateCheckSnapshot = { updates: {}, installed: {}, ready: false, failed: new Set() }
+let updateCheckSnapshot = emptyUpdateCheck
+let updateCheckBoot: string | null = null
+let updateCheckRequest = 0
+let updateCheckCommitted = 0
+let installedCheckCommitted = 0
+const updateCheckListeners = new Set<() => void>()
+/** A manual check on either surface fences older background samples on both. */
+const pendingUpdateNotificationReads = new Set<number>()
+
+function getUpdateCheckSnapshot() { return updateCheckSnapshot }
+
+function subscribeUpdateCheck(listener: () => void): () => void {
+  updateCheckListeners.add(listener)
+  return () => { updateCheckListeners.delete(listener) }
+}
+
+function publishUpdateCheck(snapshot: UpdateCheckSnapshot): void {
+  updateCheckSnapshot = snapshot
+  for (const listener of updateCheckListeners) listener()
+}
+
+function releaseUpdateNotificationRead(request: number): void {
+  if (pendingUpdateNotificationReads.delete(request)) publishUpdateCheck({ ...updateCheckSnapshot })
+}
+
+function resetUpdateCheck(boot: string | null): void {
+  pendingUpdateNotificationReads.clear()
+  updateCheckBoot = boot
+  updateCheckCommitted = ++updateCheckRequest
+  installedCheckCommitted = updateCheckRequest
+  publishUpdateCheck(emptyUpdateCheck)
+}
+
+function observeUpdateCheckBoot(boot: string, previous: string | null): boolean {
+  if (previous !== updateCheckBoot) return false
+  if (updateCheckBoot === null) updateCheckBoot = boot
+  if (updateCheckBoot === boot) return false
+  resetUpdateCheck(boot)
+  return true
+}
+
 let cachedInstalledReady = false
 let cachedSkins: string[] = []
 let cachedDisabledNames: string[] = []
@@ -1880,12 +1960,10 @@ function cacheState<T>(write: (value: T) => void, setState: (value: T | ((curren
 
 /** Test helper: drop the shared surface caches between cases. */
 export function resetHostCompatibilityCache(): void {
-  cachedHostCompatibility = {}
-  cachedHostVersion = undefined
-  hostCompatibilityInFlight.clear()
-  cachedUpdates = {}
-  cachedUpdatesReady = false
+  discoveryScan.reset()
+  resetUpdateCheck(null)
   cachedInstalledReady = false
+  cachedLocalDescriptions = {}
   cachedSkins = []
   cachedDisabledNames = []
   cachedInstalledFiles = []
@@ -1896,32 +1974,6 @@ export function resetHostCompatibilityCache(): void {
   cachedMarketVersion = null
 }
 
-/** Any cached answer counts — including unavailable. Re-querying every
- * remount used to re-POST thousands of names; a host-version change (below)
- * is what drops the map for a fresh scan. */
-function hostCompatibilitySettled(name: string): boolean {
-  return cachedHostCompatibility[name] !== undefined
-}
-
-function clearHostCompatibilityCache(): void {
-  cachedHostCompatibility = {}
-  hostCompatibilityInFlight.clear()
-  for (const listener of hostCompatibilityListeners) listener()
-}
-
-function subscribeHostCompatibility(onStoreChange: () => void): () => void {
-  hostCompatibilityListeners.add(onStoreChange)
-  return () => { hostCompatibilityListeners.delete(onStoreChange) }
-}
-
-/** Merge into the module cache and notify every mounted MarketSection — a
- * sidebar/settings switch used to drop in-flight setStates and leave the
- * note frozen at 「正在检查 665/2455」. */
-function commitHostCompatibility(accepted: HostCompatibilityMap): void {
-  cachedHostCompatibility = { ...cachedHostCompatibility, ...accepted }
-  for (const listener of hostCompatibilityListeners) listener()
-}
-
 /** Discover grid page-size choices — the catalog grows daily, so cap each page. */
 const PAGE_SIZES = [24, 48, 96]
 const DEFAULT_PAGE_SIZE = 24
@@ -1929,7 +1981,7 @@ const WEBDAV_STORAGE_KEY = 'dshm-webdav'
 
 function savedWebdav(): { url: string; username: string; password: string; auto: boolean } {
   try {
-    const value = JSON.parse(localStorage.getItem(WEBDAV_STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    const value = JSON.parse(window.localStorage.getItem(WEBDAV_STORAGE_KEY) ?? '{}') as Record<string, unknown>
     return {
       url: typeof value.url === 'string' ? value.url : '',
       username: typeof value.username === 'string' ? value.username : '',
@@ -1983,9 +2035,69 @@ function installedMap(value: unknown): InstalledMap {
   return installed
 }
 
+/** Optional /installed metadata: older hosts omit it, malformed values are not text. */
+function localDescriptionsFromUnknown(value: unknown): Record<string, string> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+  const descriptions: Record<string, string> = {}
+  for (const [name, description] of Object.entries(value)) {
+    if (typeof description === 'string' && description.trim() !== '') descriptions[name] = description.trim()
+  }
+  return descriptions
+}
+
 /** A `{name: {...}}` map, or anything else — for untyped server fields. */
 function isRecordOfRecords(value: unknown): value is Record<string, { spec?: string; reason?: string }> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isInstalledSnapshot(value: unknown): value is InstalledMap {
+  return isRecordOfRecords(value) && Object.values(value).every(spec => typeof spec === 'string')
+}
+
+function isUpdateStatus(value: unknown): value is UpdateStatus {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const status = value as UpdateStatus
+  return typeof status.updateAvailable === 'boolean'
+    && (status.checkFailed === undefined || status.checkFailed === true)
+    && (status.checkError === undefined || status.checkError === 'unavailable')
+    && (status.kind === undefined || typeof status.kind === 'string')
+    && (status.version === undefined || status.version === null || typeof status.version === 'string')
+    && (status.latest === undefined || status.latest === null || typeof status.latest === 'string')
+    && (status.current === undefined || status.current === null || typeof status.current === 'string')
+}
+
+function readUpdateStatuses(body: unknown): Record<string, UpdateStatus> {
+  const updates = (body as { updates?: unknown } | null)?.updates
+  if (!isRecordOfRecords(updates) || !Object.values(updates).every(isUpdateStatus)) {
+    throw new Error('Invalid update list')
+  }
+  return updates as Record<string, UpdateStatus>
+}
+
+function applyUpdateCheck(request: number, received: Record<string, UpdateStatus> | null, installed: InstalledMap | null): void {
+  if (request < updateCheckCommitted) return
+  updateCheckCommitted = request
+  const previous = updateCheckSnapshot
+  const hasSameSpec = (name: string) => installed?.[name] !== undefined && installed[name] === previous.installed[name]
+  if (received === null) {
+    // A failed response says nothing about eligibility. A fresh installed list
+    // can still rule out rows for older installs or removed programs.
+    const updates = installed === null ? previous.updates
+      : Object.fromEntries(Object.entries(previous.updates).filter(([name]) => hasSameSpec(name)))
+    publishUpdateCheck({ ...previous, updates, installed: installed ?? previous.installed, failed: null })
+    return
+  }
+  const failed = new Set<string>()
+  const updates = Object.fromEntries(Object.entries(received).map(([name, status]) => {
+    if (status.checkFailed !== true && status.checkError !== 'unavailable') return [name, status]
+    failed.add(name)
+    const confirmed = previous.updates[name]
+    // A name can be reinstalled with a different source or local version.
+    if (hasSameSpec(name) && confirmed?.checkFailed !== true && confirmed?.checkError !== 'unavailable' && typeof status.version === 'string'
+      && status.version === confirmed?.version && status.kind === confirmed.kind) return [name, confirmed]
+    return [name, status]
+  }))
+  publishUpdateCheck({ updates, installed: installed ?? {}, ready: installed !== null, failed })
 }
 
 function sameInstalledMap(left: InstalledMap, right: InstalledMap): boolean {
@@ -2198,18 +2310,6 @@ function withoutHostProjection(
 }
 
 /**
- * Whether the "compatible with this host" filter starts on, and remembers the
- * answer once the user disagrees with the default (#872).
- *
- * Storage may be unavailable (private mode, a locked-down webview); the
- * default is what matters, so a failure to read it is not a failure.
- */
-const HOST_FILTER_KEY = 'dshm-host-filter'
-function readHostFilterPreference(): boolean {
-  try { return localStorage.getItem(HOST_FILTER_KEY) !== 'all' } catch { return true }
-}
-
-/**
  * 最近收录 display preferences: collapsed / hidden (#940).
  *
  * The block only appears on the discover tab with an empty search and both
@@ -2218,7 +2318,7 @@ function readHostFilterPreference(): boolean {
  * are display preferences, not profile settings: since 0.1.7 the settings
  * surface is deliberately just `allowRestart`.
  *
- * Same read discipline as HOST_FILTER_KEY above: an unavailable store falls
+ * When localStorage is unavailable, the preference falls
  * back to the default, and the default is "expanded and shown".
  */
 const RECENT_COLLAPSED_KEY = 'dshm-recent-collapsed'
@@ -2227,19 +2327,19 @@ const RECENT_HIDDEN_KEY = 'dshm-recent-hidden'
  * scroll so the block stays one row tall. */
 const RECENT_STRIP_LIMIT = 8
 function readRecentFlag(key: string): boolean {
-  try { return localStorage.getItem(key) === '1' } catch { return false }
+  try { return window.localStorage.getItem(key) === '1' } catch { return false }
 }
 function writeRecentFlag(key: string, next: boolean): void {
-  try { localStorage.setItem(key, next ? '1' : '0') } catch { /* storage unavailable — the choice just won't survive a reload */ }
+  try { window.localStorage.setItem(key, next ? '1' : '0') } catch { /* storage unavailable — the choice just won't survive a reload */ }
 }
 
 /** "不再提示" on the settings-page sidebar tip. A missing store means show it. */
 const SIDEBAR_TIP_KEY = 'dshm-sidebar-tip-dismissed'
 function readSidebarTipDismissed(): boolean {
-  try { return localStorage.getItem(SIDEBAR_TIP_KEY) === '1' } catch { return false }
+  try { return window.localStorage.getItem(SIDEBAR_TIP_KEY) === '1' } catch { return false }
 }
 function writeSidebarTipDismissed(): void {
-  try { localStorage.setItem(SIDEBAR_TIP_KEY, '1') } catch { /* private mode: the tip can return */ }
+  try { window.localStorage.setItem(SIDEBAR_TIP_KEY, '1') } catch { /* private mode: the tip can return */ }
 }
 
 /**
@@ -2401,6 +2501,9 @@ export function MarketSection(props: MarketSectionProps) {
   // The host's own page for a bundle (dsh 0.2.1+). Subscribed rather than read
   // once: the service arrives with the host's plugin manager, which may load
   // after this panel is already on screen.
+  const notificationSnapshot = useUpdateNotifications()
+  const latestNotification = useRef(notificationSnapshot)
+  latestNotification.current = notificationSnapshot
   const hostNavigation = props.hostNavigation
   const openInHost = useSyncExternalStore(
     cb => hostNavigation?.subscribe(cb) ?? (() => {}),
@@ -2445,7 +2548,8 @@ export function MarketSection(props: MarketSectionProps) {
     props.themeStore.subscribe,
     props.themeStore.getSnapshot,
   )
-  const [data, setData] = useState<Registry | null>(cachedRegistry)
+  const compatibility = useSyncExternalStore(discoveryScan.subscribe, discoveryScan.getSnapshot)
+  const { catalog: data, enabled: compatibleWithHost, hostVersion, verdicts: hostCompatibility } = compatibility
   const [loadError, setLoadError] = useState<string | null>(null)
   /**
    * The host answered 404 on one of the market's own routes (#962).
@@ -2462,7 +2566,8 @@ export function MarketSection(props: MarketSectionProps) {
   const [reconnecting, setReconnecting] = useState(true)
   const [reconnectRound, setReconnectRound] = useState(0)
   const [installed, setInstalledState] = useState<InstalledMap>(cachedInstalled ?? {})
-  const setInstalled = useCallback((value: InstalledMap) => { cachedInstalled = value; setInstalledState(value) }, [])
+  const [localDescriptions, setLocalDescriptionsState] = useState<Record<string, string>>(() => cachedLocalDescriptions)
+  const setLocalDescriptions = useCallback(cacheState(value => { cachedLocalDescriptions = value }, setLocalDescriptionsState), [])
   const [repoIdentities, setRepoIdentitiesState] = useState<InstalledRepoIdentities>(cachedRepoIdentities ?? {})
   const setRepoIdentities = useCallback((value: InstalledRepoIdentities) => {
     cachedRepoIdentities = value
@@ -2478,8 +2583,8 @@ export function MarketSection(props: MarketSectionProps) {
   const [skins, setSkinsState] = useState<string[]>(() => cachedSkins)
   const setSkins = useCallback(cacheState(value => { cachedSkins = value }, setSkinsState), [])
   const [tab, setTab] = useState(() => {
-    const saved = sessionStorage.getItem('dshm-tab')
-    if (saved !== null) sessionStorage.removeItem('dshm-tab')
+    const saved = window.sessionStorage.getItem('dshm-tab')
+    if (saved !== null) window.sessionStorage.removeItem('dshm-tab')
     return saved || 'discover'
   })
   const [q, setQ] = useState('')
@@ -2536,18 +2641,15 @@ export function MarketSection(props: MarketSectionProps) {
    * Persisted in localStorage so a refresh keeps the queue; only `queued`
    * records persist — `running` recovery stays on the dshm-pending paths.
    */
-  const [updates, setUpdatesState] = useState<Record<string, UpdateStatus>>(() => cachedUpdates)
-  const setUpdates = useCallback(cacheState(value => { cachedUpdates = value }, setUpdatesState), [])
+  const updateCheck = useSyncExternalStore(subscribeUpdateCheck, getUpdateCheckSnapshot)
+  const { updates } = updateCheck
   const queueRestoredRef = useRef(false)
-  const [queueSnapshotReady, setQueueSnapshotReady] = useState({
-    installed: cachedInstalledReady,
-    updates: cachedUpdatesReady,
-  })
+  const [installedReady, setInstalledReady] = useState(cachedInstalledReady)
   useEffect(() => {
     if (queueRestoredRef.current) return
     let saved: unknown = null
     try {
-      saved = JSON.parse(localStorage.getItem('dshm-queue-v1') ?? 'null')
+      saved = JSON.parse(window.localStorage.getItem('dshm-queue-v1') ?? 'null')
     } catch { saved = null }
     if (!Array.isArray(saved) || saved.length === 0) {
       queueRestoredRef.current = true
@@ -2555,15 +2657,14 @@ export function MarketSection(props: MarketSectionProps) {
     }
     if (data === null) return
     // Cached or not-yet-loaded maps cannot judge a replacement's saved queue.
-    if (saved.some(row => row?.kind === 'update' || row?.kind === 'uninstall') && !queueSnapshotReady.installed) return
-    if (saved.some(row => row?.kind === 'update') && !queueSnapshotReady.updates) return
+    if (saved.some(row => row?.kind === 'update' || row?.kind === 'uninstall') && !installedReady) return
+    if (saved.some(row => row?.kind === 'update' && (
+      !updateCheck.ready || updateCheck.failed === null || updateCheck.failed.has(row.name)
+    ))) return
     queueRestoredRef.current = true
-    // Consumed only once the rows can actually be restored. Removing it
-    // earlier lost the queue outright: this effect runs on the first render,
-    // where `data === null` (the catalog has not arrived), and the run that
-    // follows found the storage empty — so a REFRESH with a pending queue, the
-    // case this feature exists for, threw it away.
-    try { localStorage.removeItem('dshm-queue-v1') } catch { /* storage unavailable */ }
+    // Claim the saved rows synchronously once they have enough evidence to
+    // restore, so a second mounted surface cannot restore the same tasks.
+    try { window.localStorage.removeItem('dshm-queue-v1') } catch { /* storage unavailable */ }
     /**
      * A queued row may only run while the world it was queued in still holds.
      *
@@ -2647,7 +2748,7 @@ export function MarketSection(props: MarketSectionProps) {
       return kept
     })
     setOperationsOpen(true)
-  }, [data, t, lang, queueSnapshotReady, installed, updates])
+  }, [data, t, lang, installedReady, installed, updateCheck, updates])
   useEffect(() => {
     // Never write before the restore has read. On the first render `records`
     // is empty, and this effect would then delete the stored queue that the
@@ -2663,8 +2764,8 @@ export function MarketSection(props: MarketSectionProps) {
         // itself and bypass the maintenance barrier (#411).
         .filter(record => record.state === 'queued' && record.hostOperationId === undefined)
         .map(record => ({ kind: record.kind, name: record.name, ...(record.url === undefined ? {} : { url: record.url }), ...(record.updateOptions === undefined ? {} : { updateOptions: record.updateOptions }) }))
-      if (queued.length === 0) localStorage.removeItem('dshm-queue-v1')
-      else localStorage.setItem('dshm-queue-v1', JSON.stringify(queued))
+      if (queued.length === 0) window.localStorage.removeItem('dshm-queue-v1')
+      else window.localStorage.setItem('dshm-queue-v1', JSON.stringify(queued))
     } catch { /* storage unavailable */ }
   }, [records])
   /**
@@ -2688,7 +2789,7 @@ export function MarketSection(props: MarketSectionProps) {
     if (settledRestoredRef.current) return
     settledRestoredRef.current = true
     let saved: string | null = null
-    try { saved = localStorage.getItem(SETTLED_STORAGE_KEY) } catch { saved = null }
+    try { saved = window.localStorage.getItem(SETTLED_STORAGE_KEY) } catch { saved = null }
     const restored = restoreSettled(saved)
     if (restored.length === 0) return
     // Ids came from a previous mount's counter. Continue past them, or the next
@@ -2716,8 +2817,8 @@ export function MarketSection(props: MarketSectionProps) {
     }
     try {
       const settled = serializeSettled(records)
-      if (settled.length === 0) localStorage.removeItem(SETTLED_STORAGE_KEY)
-      else localStorage.setItem(SETTLED_STORAGE_KEY, JSON.stringify(settled))
+      if (settled.length === 0) window.localStorage.removeItem(SETTLED_STORAGE_KEY)
+      else window.localStorage.setItem(SETTLED_STORAGE_KEY, JSON.stringify(settled))
     } catch { /* storage unavailable — the rows just won't survive a reload */ }
   }, [records])
   /** Raised by the card marker, so "查看详情" lands on the record itself. */
@@ -2791,7 +2892,7 @@ export function MarketSection(props: MarketSectionProps) {
     reason?: 'missing' | 'unavailable' | 'unreadable'
   }
   type ResolvedNotes =
-    | { kind: 'release'; release: NoteRelease }
+    | { kind: 'release'; release: NoteRelease; beyondTarget?: string; commits?: { items: NoteCommit[]; found: boolean } }
     | { kind: 'commits'; commits: { items: NoteCommit[]; found: boolean } }
     | { kind: 'npm'; npmTimes: Array<{ version: string; date: string }> }
     | { kind: 'source'; sourceUrl?: string | null; reason?: 'missing' | 'unavailable' | 'unreadable' }
@@ -2836,9 +2937,10 @@ export function MarketSection(props: MarketSectionProps) {
    * shows these plugins and their update actions; only proactive prompts use
    * this set. */
   const [ignoredUpdateNames, setIgnoredUpdateNames] = useState<string[]>([])
+  useEffect(() => { notifyUpdatePreferencesChanged() }, [ignoredUpdateNames])
   const [updatingName, setUpdatingName] = useState<string | null>(null)
   /** Update-notes dialog (#294): which row opened it, and what it resolved to. */
-  const [notesFor, setNotesFor] = useState<{ name: string; current: string | null; latest: string | null; repoUrl: string | null } | null>(null)
+  const [notesFor, setNotesFor] = useState<{ name: string; current: string | null; latest: string | null; target: string | null; repoUrl: string | null } | null>(null)
   const [updateNotes, setUpdateNotes] = useState<ResolvedNotes | null>(null)
   const [notesState, setNotesState] = useState<'loading' | 'ready' | 'fail'>('loading')
   // Plugin blocked by pnpm's fresh-release safety wait; arms the update-now button.
@@ -2973,6 +3075,21 @@ export function MarketSection(props: MarketSectionProps) {
   const setDisabledNames = useCallback(cacheState(value => { cachedDisabledNames = value }, setDisabledNamesState), [])
   /** The user's own note per plugin (#347): package name → text. */
   const [notes, setNotes] = useState<Record<string, string>>({})
+  /**
+   * When this market installed/updated each package (#1142). Only packages
+   * the market itself installed have an entry: the CLI and the host's own
+   * plugins page leave nothing on disk that says when, and the row shows
+   * `—` rather than guessing from a directory mtime pnpm rewrites.
+   */
+  const [installTimes, setInstallTimes] = useState<Record<string, InstallStamp>>({})
+  /**
+   * How the installed list is ordered (#1142). Its own value, NOT the
+   * market's `SortField`: that one is downloads/stars/added, and none of the
+   * three exist for an installed package — `added` is the catalog's
+   * collection date, which is a different question from when the user
+   * installed it.
+   */
+  const [installedSort, setInstalledSort] = useState<InstalledSort>('default')
   /** Catalog URLs bookmarked for later install (#414). */
   const [favoriteUrls, setFavoriteUrlsState] = useState<string[]>(() => cachedFavoriteUrls)
   const setFavoriteUrls = useCallback(cacheState(value => { cachedFavoriteUrls = value }, setFavoriteUrlsState), [])
@@ -2980,6 +3097,9 @@ export function MarketSection(props: MarketSectionProps) {
   const [blockedNames, setBlockedNamesState] = useState<string[]>(() => cachedBlockedNames)
   const setBlockedNames = useCallback(cacheState(value => { cachedBlockedNames = value }, setBlockedNamesState), [])
   const [updateExemptNames, setUpdateExemptNames] = useState<string[]>([])
+  useEffect(() => {
+    void refreshUpdateNotificationsAfterChange()
+  }, [updateExemptNames, disabledNames, blockedNames])
   /** Rows the user asked to show the AUTHOR's description on, despite a note. */
   const [showTheirs, setShowTheirs] = useState<string[]>([])
   /** The row whose note is being edited, and the text in the box. */
@@ -3038,7 +3158,7 @@ export function MarketSection(props: MarketSectionProps) {
    * "npm latest" beside a number that is not npm's latest is a bug report
    * waiting to be filed. Null until the catalog answers.
    */
-  const [catalogUpdated, setCatalogUpdated] = useState<string | null>(null)
+  const catalogUpdated = data?.updated?.trim() || null
   const catalogVersionTip = useMemo(
     () => (catalogUpdated === null
       ? t('catalogVersionUndated')
@@ -3142,11 +3262,11 @@ export function MarketSection(props: MarketSectionProps) {
   const [gistToken, setGistToken] = useState('')
   /** Gist id — persisted across reloads (non-sensitive: the Gist itself is private). */
   const [gistId, setGistId] = useState(() => {
-    try { return localStorage.getItem('dshm-gist-id') ?? '' } catch { return '' }
+    try { return window.localStorage.getItem('dshm-gist-id') ?? '' } catch { return '' }
   })
   /** Export mode: 'update' PATCHes the Gist in the field, 'create' makes a new one. */
   const [gistMode, setGistMode] = useState<'update' | 'create'>(() => {
-    try { return localStorage.getItem('dshm-gist-id') ? 'update' : 'create' } catch { return 'create' }
+    try { return window.localStorage.getItem('dshm-gist-id') ? 'update' : 'create' } catch { return 'create' }
   })
   const [gistBusy, setGistBusy] = useState(false)
   const [gistMessage, setGistMessage] = useState<string | null>(null)
@@ -3177,38 +3297,11 @@ export function MarketSection(props: MarketSectionProps) {
   const [sortField, setSortField] = useState<SortField>('downloads')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
-  /** Undefined while the first catalog response is pending; null means the host cannot be located. */
-  const [hostVersion, setHostVersionState] = useState<string | null | undefined>(() => cachedHostVersion)
-  const setHostVersion = useCallback((value: string | null | undefined) => {
-    // Same process, different DSH — peer ranges were judged against the old
-    // host and must not keep filtering the list.
-    if (typeof cachedHostVersion === 'string' && typeof value === 'string' && value !== cachedHostVersion) {
-      clearHostCompatibilityCache()
-    }
-    cachedHostVersion = value
-    setHostVersionState(value)
-  }, [])
-  /** v1 is deliberately opt-in: undeclared/unknown entries stay visible even when enabled. */
-  // #872: ON by default. The report measured it on a live 0.2.0-rc.2 host —
-  // 175 discovered plugins, 45 of them declaring that host — so the default
-  // list was ~74% installable-in-name-only, with nothing at list level saying
-  // so. That is the wrong default per this project's own rule: the default has
-  // to be the one that is right without reading anything. Turning it off is
-  // one click in the filter menu, and the choice sticks.
-  const [compatibleWithHost, setCompatibleWithHostState] = useState(readHostFilterPreference)
-  const setCompatibleWithHost = useCallback((next: boolean) => {
-    setCompatibleWithHostState(next)
-    try { localStorage.setItem(HOST_FILTER_KEY, next ? 'compatible' : 'all') } catch { /* storage unavailable — the choice just won't survive a reload */ }
-  }, [])
+  const setCompatibleWithHost = useCallback((next: boolean) => { discoveryScan.setEnabled(next) }, [])
   /** The profile this page is running in, for the manual command's own
    * `--profile` token (#872). The catalog's is always `web`. */
   const [profileName, setProfileName] = useState<string | null>(null)
-  const hostCompatibility = useSyncExternalStore(
-    subscribeHostCompatibility,
-    () => cachedHostCompatibility,
-    () => cachedHostCompatibility,
-  )
-  const [hostCompatibilityPending, setHostCompatibilityPending] = useState(0)
+  const compatibilityDemandOwner = useRef({})
   const [catsOpen, setCatsOpen] = useState(false)
   /** Themes tab: independent from Discover's sort/time state above — a
    * search or sort choice in one tab has no business resetting the other. */
@@ -3270,14 +3363,63 @@ export function MarketSection(props: MarketSectionProps) {
   /** True while the drain is executing one queued request (no parallel starts). */
   const drainingRef = useRef(false)
 
-  const refreshInstalled = useCallback((force?: boolean) => {
-    fetch(api('/dsh-crate/installed'), { cache: 'no-store' })
-      .then(res => res.json())
+  const mounted = useRef(false)
+  const refreshRequest = useRef(0)
+  const refreshInFlight = useRef(false)
+  const bridgedNotification = useRef<UpdateNotificationsState | null>(null)
+  const notificationReads = useRef(new Set<number>())
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      refreshRequest.current = 0
+      refreshInFlight.current = false
+      for (const request of notificationReads.current) releaseUpdateNotificationRead(request)
+      notificationReads.current.clear()
+    }
+  }, [])
+
+  const refreshInstalled = useCallback((force?: boolean, notification?: UpdateNotificationsState) => {
+    if (!mounted.current) return
+    const request = ++updateCheckRequest
+    const boot = updateCheckBoot
+    refreshRequest.current = request
+    refreshInFlight.current = true
+    if (notification === undefined) {
+      bridgedNotification.current = latestNotification.current
+      notificationReads.current.add(request)
+      pendingUpdateNotificationReads.add(request)
+    }
+    const ownsRefresh = () => mounted.current && refreshRequest.current === request
+    const isCurrent = () => ownsRefresh() && (boot === null || boot === updateCheckBoot)
+      && (notification === undefined || updateCheckBoot === null || notification.boot === updateCheckBoot)
+    setCheckingUpdates(true)
+    const requestOptions = { cache: 'no-store', signal: AbortSignal.timeout(UPDATE_CHECK_REQUEST_MS) } as const
+    const installRead = fetch(api('/dsh-crate/installed'), requestOptions)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${String(res.status)}`)
+        return res.json()
+      })
       .then(body => {
-        setInstalled(body.installed || {})
+        if (!isCurrent() || !isInstalledSnapshot(body?.installed)) return null
+        const installed = body.installed
+        // Each surface renders its own installed list. A newer update check
+        // in a sibling surface can supersede the shared update response only.
+        if (request >= installedCheckCommitted) {
+          cachedInstalled = installed
+          installedCheckCommitted = request
+        }
+        setInstalledState(installed)
+        if (notification !== undefined) {
+          cachedInstalledReady = true
+          setInstalledReady(true)
+          return installed
+        }
+        setLocalDescriptions(localDescriptionsFromUnknown(body.descriptions))
         setRepoIdentities(installedRepoIdentities(body.repoIdentities))
         setRepoHints(installedRepoHints(body.repoHints))
-        setInstalledFiles(Array.isArray(body.present) ? body.present : Object.keys(body.installed || {}))
+        setInstalledFiles(Array.isArray(body.present) ? body.present : Object.keys(installed))
         setSkins(body.live || [])
         if (Array.isArray(body.disabled)) {
           setDisabledNames(body.disabled)
@@ -3288,6 +3430,18 @@ export function MarketSection(props: MarketSectionProps) {
         }
         if (body.notes !== null && typeof body.notes === 'object' && !Array.isArray(body.notes)) {
           setNotes(body.notes as Record<string, string>)
+        }
+        if (body.installTimes !== null && typeof body.installTimes === 'object' && !Array.isArray(body.installTimes)) {
+          const stamps: Record<string, InstallStamp> = {}
+          for (const [name, raw] of Object.entries(body.installTimes as Record<string, unknown>)) {
+            if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) continue
+            const record = raw as { installedAt?: unknown; updatedAt?: unknown }
+            const installedAt = typeof record.installedAt === 'string' ? record.installedAt : undefined
+            const updatedAt = typeof record.updatedAt === 'string' ? record.updatedAt : undefined
+            if (installedAt === undefined && updatedAt === undefined) continue
+            stamps[name] = { ...(installedAt === undefined ? {} : { installedAt }), ...(updatedAt === undefined ? {} : { updatedAt }) }
+          }
+          setInstallTimes(stamps)
         }
         if (Array.isArray(body.patchDisabled)) setPatchDisabledNames(body.patchDisabled)
         if (typeof body.profile === 'string') setProfileName(body.profile)
@@ -3313,18 +3467,68 @@ export function MarketSection(props: MarketSectionProps) {
         installedReadGen.current += 1
         setHostDependencyFindings(findings)
         cachedInstalledReady = true
-        setQueueSnapshotReady(ready => ({ ...ready, installed: true }))
+        setInstalledReady(true)
+        return installed
       })
-      .catch(() => {})
-    fetch(api('/dsh-crate/updates') + (force === true ? '?force=1' : ''), { cache: 'no-store' })
-      .then(res => res.json())
-      .then(body => {
-        setUpdates(body.updates || {})
-        cachedUpdatesReady = true
-        setQueueSnapshotReady(ready => ({ ...ready, updates: true }))
+      .catch(() => null)
+    const updateRead = notification !== undefined
+      ? Promise.resolve(notification.updates)
+      : fetch(api('/dsh-crate/updates') + (force === true ? '?force=1' : ''), requestOptions)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${String(res.status)}`)
+        return res.json()
       })
-      .catch(() => {})
-  }, [setActivations, setBlockedNames, setDisabledNames, setFavoriteUrls, setInstalledBundles, setInstalledFiles, setSkins, setUpdates])
+      .then(readUpdateStatuses)
+      .catch(() => {
+        // Expose a failed update check even when /installed is still loading.
+        // Reconcile any retained entries when that read has settled.
+        if (isCurrent()) applyUpdateCheck(request, null, null)
+        if (ownsRefresh()) { refreshInFlight.current = false; setCheckingUpdates(false) }
+        return null
+      })
+    void Promise.all([updateRead, installRead]).then(([received, installed]) => {
+      if (isCurrent()) {
+        if (notification?.checkedAt === null && request >= updateCheckCommitted) {
+          updateCheckCommitted = request
+          publishUpdateCheck({ ...emptyUpdateCheck, installed: installed ?? {} })
+        } else {
+          applyUpdateCheck(request, received, installed)
+          // A partial failure still carries successful results for other
+          // packages. Only an unclassified failure makes the whole check unknown.
+          if (notification?.error != null && request === updateCheckCommitted
+            && updateCheckSnapshot.failed?.size === 0) {
+            publishUpdateCheck({ ...updateCheckSnapshot, failed: null })
+          }
+        }
+      }
+      if (notification === undefined) {
+        const release = () => {
+          notificationReads.current.delete(request)
+          releaseUpdateNotificationRead(request)
+        }
+        // A sample received during this check predates its result. Keep both
+        // surfaces fenced until a trailing local read has passed any older GET.
+        if (ownsRefresh()) void refreshUpdateNotificationsAfterChange().finally(release)
+        else release()
+      }
+      if (ownsRefresh()) { refreshInFlight.current = false; setCheckingUpdates(false) }
+    })
+  }, [setActivations, setBlockedNames, setDisabledNames, setFavoriteUrls, setInstalledBundles, setInstalledFiles, setLocalDescriptions, setSkins])
+
+  // A background result reuses the shared update snapshot, but still pairs it
+  // with a fresh local inventory before restoring queued work. This reads no
+  // update source and never starts a second scheduler. Manual checks keep their
+  // request/boot fences and finish before a background sample is considered.
+  useEffect(() => {
+    if (!notificationSnapshot.loaded || notificationSnapshot.readFailed || notificationSnapshot.checking
+      || refreshInFlight.current || pendingUpdateNotificationReads.size > 0
+      || (updateCheckBoot !== null && notificationSnapshot.boot !== updateCheckBoot)) return
+    const previous = bridgedNotification.current
+    if (previous?.updates === notificationSnapshot.updates && previous.checkedAt === notificationSnapshot.checkedAt
+      && previous.error === notificationSnapshot.error && previous.boot === notificationSnapshot.boot) return
+    bridgedNotification.current = notificationSnapshot
+    refreshInstalled(undefined, notificationSnapshot)
+  }, [notificationSnapshot, checkingUpdates, updateCheck, refreshInstalled])
 
   /**
    * Host-owned deferred operations (#411).
@@ -3337,25 +3541,31 @@ export function MarketSection(props: MarketSectionProps) {
    */
   const settledHostRef = useRef(new Set<string>())
   const knownHostIdsRef = useRef(new Set<string>())
-  /** Host operations the user cleared; a status poll must not add them back. */
-  const dismissedHostRef = useRef(new Set<string>())
+  /**
+   * Host operations the user cleared; a status poll must not add them back —
+   * and neither must a reload. The set is read from storage and written back
+   * per id, because these rows belong to the host: clearing one only ever
+   * hides it here, so a set that lived only in memory brought the row back on
+   * the next mount (#1184).
+   */
+  const dismissedHostRef = useRef(dismissedHostIdSet())
   const drainMarkerRestoredRef = useRef(false)
 
   const clearDrainMarker = useCallback((operationId: string) => {
     try {
-      const raw = localStorage.getItem('dshm-drain-v1')
+      const raw = window.localStorage.getItem('dshm-drain-v1')
       if (raw === null) return
       const parsed = JSON.parse(raw) as unknown
       if (!Array.isArray(parsed)) return
       const kept = parsed.filter(entry => (entry as { id?: unknown } | null)?.id !== operationId)
-      if (kept.length === 0) localStorage.removeItem('dshm-drain-v1')
-      else localStorage.setItem('dshm-drain-v1', JSON.stringify(kept))
+      if (kept.length === 0) window.localStorage.removeItem('dshm-drain-v1')
+      else window.localStorage.setItem('dshm-drain-v1', JSON.stringify(kept))
     } catch { /* storage unavailable — the Host record is still the source of truth */ }
   }, [])
 
   const rememberDrainMarker = useCallback((operation: { operationId: string; kind: string; name: string; url?: string }) => {
     try {
-      const raw = localStorage.getItem('dshm-drain-v1')
+      const raw = window.localStorage.getItem('dshm-drain-v1')
       const parsed = raw === null ? [] : JSON.parse(raw) as unknown
       const list = Array.isArray(parsed) ? parsed : []
       if (list.some(entry => (entry as { id?: unknown } | null)?.id === operation.operationId)) return
@@ -3365,7 +3575,7 @@ export function MarketSection(props: MarketSectionProps) {
         name: operation.name,
         ...(operation.url === undefined ? {} : { url: operation.url }),
       })
-      localStorage.setItem('dshm-drain-v1', JSON.stringify(list))
+      window.localStorage.setItem('dshm-drain-v1', JSON.stringify(list))
     } catch { /* storage unavailable — the Host record still projects the row */ }
   }, [])
 
@@ -3376,7 +3586,7 @@ export function MarketSection(props: MarketSectionProps) {
     if (boot === null) return
     drainMarkerRestoredRef.current = true
     let saved: unknown = null
-    try { saved = JSON.parse(localStorage.getItem('dshm-drain-v1') ?? 'null') } catch { saved = null }
+    try { saved = JSON.parse(window.localStorage.getItem('dshm-drain-v1') ?? 'null') } catch { saved = null }
     if (!Array.isArray(saved) || saved.length === 0) return
     const entries = saved.filter((entry): entry is { id: string; kind?: unknown; name?: unknown; url?: unknown } => {
       if (entry === null || typeof entry !== 'object') return false
@@ -3410,8 +3620,8 @@ export function MarketSection(props: MarketSectionProps) {
       setOperationsOpen(true)
     }
     try {
-      if (current.length > 0) localStorage.setItem('dshm-drain-v1', JSON.stringify(current))
-      else localStorage.removeItem('dshm-drain-v1')
+      if (current.length > 0) window.localStorage.setItem('dshm-drain-v1', JSON.stringify(current))
+      else window.localStorage.removeItem('dshm-drain-v1')
     } catch { /* storage unavailable */ }
   }, [t])
 
@@ -3596,6 +3806,9 @@ export function MarketSection(props: MarketSectionProps) {
    * with the user left to guess whether the plugin landed.
    */
   const noteMarketGone = useCallback(() => {
+    discoveryScan.setUnavailable()
+    refreshRequest.current = 0
+    setCheckingUpdates(false)
     setMarketGone(true)
     setBusyUrl(null)
     setUpdatingName(null)
@@ -3605,10 +3818,13 @@ export function MarketSection(props: MarketSectionProps) {
         ? { ...record, state: 'failed' as const, reason: t('marketGoneRecord') }
         : record))
     try {
-      sessionStorage.removeItem('dshm-pending')
-      sessionStorage.removeItem('dshm-updating')
+      window.sessionStorage.removeItem('dshm-pending')
+      window.sessionStorage.removeItem('dshm-updating')
     } catch { /* storage unavailable */ }
   }, [t])
+  useEffect(() => {
+    if (compatibility.gone) noteMarketGone()
+  }, [compatibility.gone, noteMarketGone])
 
   /**
    * The status payload, or `null` when the route answered 404 (#962). Every
@@ -3625,31 +3841,12 @@ export function MarketSection(props: MarketSectionProps) {
 
   const loadCatalog = useCallback(() => {
     setLoadError(null)
-    return fetch(api('/dsh-crate/registry'), { cache: 'no-store' })
-      .then(async (res) => {
-        const body = (await res.json().catch(() => ({}))) as {
-          registry?: Registry
-          hostVersion?: string | null
-          error?: string
-        }
-        if (res.status === 404) {
+    return discoveryScan.resume()
+      .then((outcome) => {
+        if (outcome === 'gone') {
           noteMarketGone()
           throw new Error(t('marketGoneTitle'))
         }
-        if (!res.ok) throw new Error(typeof body.error === 'string' ? body.error : `HTTP ${String(res.status)}`)
-        return body
-      })
-      .then((body) => {
-        if (body.registry === undefined) throw new Error('the catalog response carried no data')
-        if (body.registry.updated !== cachedRegistry?.updated) {
-          resetScreenshotsCache()
-          resetThemePreviewCache()
-        }
-        cachedRegistry = body.registry
-        setData(body.registry)
-        const catalogDate = body.registry.updated
-        setCatalogUpdated(typeof catalogDate === 'string' && catalogDate.trim() !== '' ? catalogDate : null)
-        setHostVersion(typeof body.hostVersion === 'string' ? body.hostVersion : null)
         setLoadError(null)
       })
       // Report WHY. An unreachable catalog used to be answered with a
@@ -3678,12 +3875,15 @@ export function MarketSection(props: MarketSectionProps) {
     let inFlight: AbortController | undefined
     let stopped = false
     const attempt = async (): Promise<void> => {
+      const boot = updateCheckBoot
       inFlight = new AbortController()
       const cutoff = setTimeout(() => inFlight?.abort(), RECONNECT_REQUEST_MS)
       try {
         const res = await fetch(api('/dsh-crate/status'), { cache: 'no-store', signal: inFlight.signal })
         const status = res.ok ? await res.json() as Partial<MarketStatus> | null : null
         if (!stopped && status !== null && typeof status === 'object' && typeof status.boot === 'string') {
+          discoveryScan.setBoot(status.boot)
+          observeUpdateCheckBoot(status.boot, boot)
           setMarketGone(false)
           void loadCatalog()
           refreshInstalled()
@@ -3708,61 +3908,9 @@ export function MarketSection(props: MarketSectionProps) {
     }
   }, [marketGone, reconnectRound, loadCatalog, refreshInstalled])
 
-  const loadHostCompatibility = useCallback(async (names: readonly string[]): Promise<void> => {
-    const unique = [...new Set(names)].filter(name => {
-      if (name === '' || hostCompatibilitySettled(name) || hostCompatibilityInFlight.has(name)) return false
-      hostCompatibilityInFlight.add(name)
-      return true
-    })
-    if (unique.length === 0) return
-    setHostCompatibilityPending(count => count + unique.length)
-    for (let offset = 0; offset < unique.length; offset += 64) {
-      const chunk = unique.slice(offset, offset + 64)
-      try {
-        const response = await fetch(api('/dsh-crate/discovery-compatibility'), {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            packages: chunk.filter(key => !key.startsWith('https://')),
-            ...(chunk.some(key => key.startsWith('https://'))
-              ? { entries: chunk.filter(key => key.startsWith('https://')) } : {}),
-          }),
-        })
-        const body = await response.json() as {
-          hostVersion?: string | null
-          plugins?: Record<string, HostCompatibility>
-        }
-        if (!response.ok || body.plugins === null || typeof body.plugins !== 'object') {
-          throw new Error(`HTTP ${String(response.status)}`)
-        }
-        if (typeof body.hostVersion === 'string' || body.hostVersion === null) {
-          setHostVersion(body.hostVersion)
-        }
-        const accepted: HostCompatibilityMap = {}
-        for (const name of chunk) {
-          const item = body.plugins[name] as HostCompatibility | null | undefined
-          if (item === null || item === undefined
-            || !['compatible', 'incompatible', 'unknown'].includes(item.status)
-            || !['manifest', 'undeclared', 'unavailable'].includes(item.basis)
-            || (item.requirement !== null && typeof item.requirement !== 'string')
-            || !Array.isArray(item.declarations)) {
-            accepted[name] = UNAVAILABLE_HOST_COMPATIBILITY
-            continue
-          }
-          accepted[name] = item
-        }
-        commitHostCompatibility(accepted)
-      } catch {
-        commitHostCompatibility(Object.fromEntries(chunk.map(name => [name, UNAVAILABLE_HOST_COMPATIBILITY])))
-      } finally {
-        for (const name of chunk) hostCompatibilityInFlight.delete(name)
-        setHostCompatibilityPending(count => Math.max(0, count - chunk.length))
-      }
-    }
-  }, [setHostVersion])
-
   useEffect(() => {
     void loadCatalog()
+    const boot = updateCheckBoot
     fetch(api('/dsh-crate/status'), { cache: 'no-store' })
       .then(readMarketStatus)
       .then(status => {
@@ -3782,13 +3930,15 @@ export function MarketSection(props: MarketSectionProps) {
         // within seconds and the images correct themselves.
         applyGithubRouting(status)
         if (typeof status.boot === 'string') {
+          discoveryScan.setBoot(status.boot)
+          if (mounted.current && observeUpdateCheckBoot(status.boot, boot)) refreshInstalled()
           setBootId(status.boot)
           setIgnoredUpdateNames(ignoredUpdatesForBoot(status.boot))
           // A dismissal only silences the notice for the boot it was made
           // in: if the user dismissed instead of restarting, the next boot
           // (or a stale dismissal from a previous one) shows it again.
           try {
-            setRestartNoticeDismissed(sessionStorage.getItem('dshm-restart-dismissed') === status.boot)
+            setRestartNoticeDismissed(window.sessionStorage.getItem('dshm-restart-dismissed') === status.boot)
           } catch { /* storage unavailable */ }
         }
         setRestartEnabled(status.restart === true)
@@ -3801,6 +3951,7 @@ export function MarketSection(props: MarketSectionProps) {
       })
       .catch(() => {})
     refreshInstalled()
+    void refreshUpdateNotifications()
   }, [applyDrainStatus, refreshInstalled, loadCatalog, readMarketStatus, restoreDrainMarkers])
 
   // Pending-restart flags survive tab switches and page reloads, scoped to
@@ -3811,7 +3962,7 @@ export function MarketSection(props: MarketSectionProps) {
     const saved = readSession('dshm-restart')
     if (saved === null) return
     if (saved.boot !== bootId) {
-      sessionStorage.removeItem('dshm-restart')
+      window.sessionStorage.removeItem('dshm-restart')
       return
     }
     if (Array.isArray(saved.doneUrls) && saved.doneUrls.length > 0) setDoneUrls(saved.doneUrls)
@@ -3826,10 +3977,11 @@ export function MarketSection(props: MarketSectionProps) {
     if (doneUrls.length === 0 && updatedNames.length === 0 && restartNames.length === 0 && removedCount === 0 && toggleRestart === 0) {
       // Nothing pending: drop any stale entry (e.g. a hot mount cleared the
       // only doneUrl) so a same-boot remount cannot resurrect the banner (#73).
-      sessionStorage.removeItem('dshm-restart')
+      window.sessionStorage.removeItem('dshm-restart')
+      notifyUpdatePreferencesChanged()
       return
     }
-    sessionStorage.setItem('dshm-restart', JSON.stringify({
+    window.sessionStorage.setItem('dshm-restart', JSON.stringify({
       boot: bootId,
       doneUrls,
       updated: updatedNames,
@@ -3837,6 +3989,7 @@ export function MarketSection(props: MarketSectionProps) {
       removed: removedCount,
       toggled: toggleRestart,
     }))
+    notifyUpdatePreferencesChanged()
   }, [bootId, doneUrls, updatedNames, restartNames, removedCount, toggleRestart])
 
   const fixEnv = useCallback(() => {
@@ -3991,7 +4144,7 @@ export function MarketSection(props: MarketSectionProps) {
                 p.url === url && isInstalled(p, statusInstalled, repoIdentities, data.plugins, repoHints))
               if (nowInstalled) {
                 idleStrikes.current = 0
-                sessionStorage.removeItem('dshm-pending')
+                window.sessionStorage.removeItem('dshm-pending')
                 const recovered = recoveredInstall.current
                 if (recovered !== null) {
                   setRecords(list => drop(list, recovered.id))
@@ -4016,7 +4169,7 @@ export function MarketSection(props: MarketSectionProps) {
                 // (e.g. exit 127) with its response lost. Without this the
                 // button says "installing" forever — across reloads (#32).
                 idleStrikes.current = 0
-                sessionStorage.removeItem('dshm-pending')
+                window.sessionStorage.removeItem('dshm-pending')
                 const recovered = recoveredInstall.current
                 if (recovered !== null) {
                   setRecords(list => drop(list, recovered.id))
@@ -4043,7 +4196,7 @@ export function MarketSection(props: MarketSectionProps) {
             if (updatingName !== null && status.busy !== true) {
               if (++updateIdleStrikes.current >= 2) {
                 updateIdleStrikes.current = 0
-                sessionStorage.removeItem('dshm-updating')
+                window.sessionStorage.removeItem('dshm-updating')
                 const recoveredId = recoveredUpdateRecordId.current
                 if (recoveredId !== null) {
                   setRecords(list => drop(list, recoveredId))
@@ -4127,6 +4280,34 @@ export function MarketSection(props: MarketSectionProps) {
     }
     setShowTop(false)
   }, [surface, themesFullscreen, tab, q, cat, sortField, sortDir, timeRange, compatibleWithHost, qThemes, themeSortField, themeSortDir, themeTimeRange, qFavorites, favSortField, favSortDir, favTimeRange, qInstalled, installedView])
+  // 设置页整页滚动时，头部固定在对话框顶部；.stickyHead 的吸顶偏移依赖头部实测高度，
+  // 窄屏换行时高度会变，所以用 ResizeObserver 跟随。
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (surface !== 'settings' || root === null || themesFullscreen) {
+      root?.style.removeProperty('--dshm-head-h')
+      return undefined
+    }
+    const head = headRef.current
+    if (head === null) return undefined
+    const apply = (): void => {
+      root.style.setProperty('--dshm-head-h', `${String(Math.round(head.getBoundingClientRect().height))}px`)
+    }
+    apply()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', apply)
+      return () => {
+        window.removeEventListener('resize', apply)
+        root.style.removeProperty('--dshm-head-h')
+      }
+    }
+    const observer = new ResizeObserver(apply)
+    observer.observe(head)
+    return () => {
+      observer.disconnect()
+      root.style.removeProperty('--dshm-head-h')
+    }
+  }, [surface, themesFullscreen])
   // Menus are portaled and would stay put while the host page scrolls. `.body`
   // does not scroll on this surface (unless Themes fullscreen), so the close
   // and the back-to-top affordance listen to the host.
@@ -4241,35 +4422,6 @@ export function MarketSection(props: MarketSectionProps) {
     }
   }, [surface, themesFullscreen])
 
-  // 设置页整页滚动时，头部固定在对话框顶部；.stickyHead 的吸顶偏移依赖头部实测高度，
-  // 窄屏换行时高度会变，所以用 ResizeObserver 跟随。
-  useLayoutEffect(() => {
-    const root = rootRef.current
-    if (surface !== 'settings' || root === null || themesFullscreen) {
-      root?.style.removeProperty('--dshm-head-h')
-      return undefined
-    }
-    const head = headRef.current
-    if (head === null) return undefined
-    const apply = (): void => {
-      root.style.setProperty('--dshm-head-h', `${String(Math.round(head.getBoundingClientRect().height))}px`)
-    }
-    apply()
-    if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', apply)
-      return () => {
-        window.removeEventListener('resize', apply)
-        root.style.removeProperty('--dshm-head-h')
-      }
-    }
-    const observer = new ResizeObserver(apply)
-    observer.observe(head)
-    return () => {
-      observer.disconnect()
-      root.style.removeProperty('--dshm-head-h')
-    }
-  }, [surface, themesFullscreen])
-
   // Rows for the current query, before the plugins the user banned are taken
   // out, and before the host filter (#872).
   //
@@ -4330,19 +4482,6 @@ export function MarketSection(props: MarketSectionProps) {
     // pluginBlocked closes over the installed map and the catalog match.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [pluginsAll, blockedNameSet, installed, repoIdentities, data, repoHints])
-  // Host filter, applied to the already-blocked list: the same rows
-  // `visiblePlugins` dropped, and the same count the chip reports, at a cost
-  // that does not grow with the catalog.
-  const { plugins, hostHiddenCount } = useMemo(() => {
-    if (!compatibleWithHost) return { plugins: pluginsUnblocked, hostHiddenCount: 0 }
-    const compatible = (plugin: RegistryPlugin): boolean => {
-      const key = hostCompatibilityKey(plugin)
-      return key === null || hostCompatibility[key]?.status !== 'incompatible'
-    }
-    let hidden = 0
-    for (const plugin of pluginsAll) if (!compatible(plugin)) hidden += 1
-    return { plugins: pluginsUnblocked.filter(compatible), hostHiddenCount: hidden }
-  }, [pluginsAll, pluginsUnblocked, compatibleWithHost, hostCompatibility])
   // A sort the user chose is a request to see the list in THAT order, and
   // this block ignores the sort by design (it is "what was added in the last
   // seven days", ordered by downloads). Left in place it sits between the
@@ -4356,11 +4495,9 @@ export function MarketSection(props: MarketSectionProps) {
       ? []
       : visiblePlugins(data.plugins, {
           category: 'all', query: '', lang, sort: 'downloads-desc', sinceDays: 7,
-          hostCompatibility, compatibleWithHost,
         }).filter(plugin => !pluginBlocked(plugin)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, tab, q, cat, timeRange, sortField, sortDir, lang, hostCompatibility, compatibleWithHost, blockedNameSet, installed, repoIdentities, repoHints])
-  const hasRecent = recentlyAdded.length > 0
+    [data, tab, q, cat, timeRange, sortField, sortDir, lang, blockedNameSet, installed, repoIdentities, repoHints])
   const [recentCollapsed, setRecentCollapsed] = useState(() => readRecentFlag(RECENT_COLLAPSED_KEY))
   const [recentHidden, setRecentHidden] = useState(() => readRecentFlag(RECENT_HIDDEN_KEY))
   const toggleRecentCollapsed = useCallback(() => {
@@ -4381,35 +4518,33 @@ export function MarketSection(props: MarketSectionProps) {
     setRecentCollapsed(false)
     writeRecentFlag(RECENT_COLLAPSED_KEY, false)
   }, [])
-  const recentPlugins = recentlyAdded.slice(0, RECENT_STRIP_LIMIT)
+  // Fix the slice before compatibility resolves. Hiding a card must not
+  // pull in an unchecked replacement and start another batch.
+  const discoverResetDeps = [q, cat, sortField, sortDir, timeRange]
   const { currentPage, totalPages, pageSize, goToPage, changePageSize } =
-    usePagination(plugins.length, [q, cat, sortField, sortDir, timeRange, compatibleWithHost], scrollToTop)
-  const discoverMore = useShownCount(plugins.length, [q, cat, sortField, sortDir, timeRange, compatibleWithHost], DEFAULT_PAGE_SIZE)
-  const pagePlugins = surface === 'plugins'
-    ? plugins.slice(0, discoverMore.shown)
-    : plugins.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-  const pageHostPackages = [...new Set([...pagePlugins, ...recentPlugins].flatMap(plugin =>
-    hostCompatibilityKey(plugin) === null ? [] : [hostCompatibilityKey(plugin)!]))]
-  const allHostPackages = useMemo(
-    () => [...new Set((data?.plugins ?? []).flatMap(plugin =>
-      hostCompatibilityKey(plugin) === null ? [] : [hostCompatibilityKey(plugin)!]))],
-    [data],
-  )
-  const pageHostPackagesKey = pageHostPackages.join('\u0000')
-  const allHostPackagesKey = allHostPackages.join('\u0000')
-  useEffect(() => {
-    if (tab === 'discover') void loadHostCompatibility(pageHostPackages)
-    // The key is the stable identity of this page's package/source set; the
-    // array itself is recreated as compatibility results arrive.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, pageHostPackagesKey, loadHostCompatibility])
-  useEffect(() => {
-    if (compatibleWithHost) void loadHostCompatibility(allHostPackages)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compatibleWithHost, allHostPackagesKey, loadHostCompatibility])
-  const loadedHostPackages = allHostPackages.reduce(
-    (count, name) => count + (hostCompatibility[name] === undefined ? 0 : 1), 0,
-  )
+    usePagination(pluginsUnblocked.length, discoverResetDeps, scrollToTop)
+  const discoverMore = useShownCount(pluginsUnblocked.length, discoverResetDeps, DEFAULT_PAGE_SIZE)
+  const basePage = surface === 'plugins'
+    ? pluginsUnblocked.slice(0, discoverMore.shown)
+    : pluginsUnblocked.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const baseRecent = recentlyAdded.slice(0, RECENT_STRIP_LIMIT)
+  const hostVerdict = (plugin: RegistryPlugin) => {
+    const key = hostCompatibilityKey(plugin)
+    return key === null ? undefined : hostCompatibility[key]
+  }
+  const compatible = (plugin: RegistryPlugin): boolean =>
+    !compatibleWithHost || hostVerdict(plugin)?.status !== 'incompatible'
+  const pagePlugins = basePage.filter(compatible)
+  const recentPlugins = baseRecent.filter(compatible)
+  const hasRecent = recentPlugins.length > 0
+  // A catalog card can appear both in the grid and in the recent strip.
+  // Keep distinct cards in counts even when they share the same lookup key.
+  const discoverCandidates = [...new Set([...basePage, ...(!recentHidden && !recentCollapsed ? baseRecent : [])])]
+  const pageHostPackages = [...new Set(discoverCandidates.map(hostCompatibilityKey).filter(key => key !== null))]
+  const pageVerdicts = discoverCandidates.map(hostVerdict)
+  const loadedHostPackages = pageHostPackages.filter(key => hostCompatibility[key] !== undefined).length
+  const hostHiddenCount = pageVerdicts.filter(verdict => verdict?.status === 'incompatible').length
+  const hostUnavailableCount = pageVerdicts.filter(verdict => verdict?.basis === 'unavailable').length
 
   const themePluginsAll = useMemo(
     () => (data === null ? [] : visiblePlugins(data.plugins, {
@@ -4475,13 +4610,16 @@ export function MarketSection(props: MarketSectionProps) {
   // Favorites reuse pluginCard (and its host-requirement badge). Discover
   // already loads compatibility for the current page; without the same
   // fetch here the badge stays on "Reading host requirement…" forever.
-  const favoritePageHostPackages = [...new Set(favoritePagePlugins.flatMap(plugin =>
-    hostCompatibilityKey(plugin) === null ? [] : [hostCompatibilityKey(plugin)!]))]
-  const favoritePageHostPackagesKey = favoritePageHostPackages.join('\u0000')
+  const compatibilityKeys = (marketGone ? [] : tab === 'discover' ? pageHostPackages
+    : tab === 'favorites' ? favoritePagePlugins.map(hostCompatibilityKey).filter(key => key !== null)
+    : []).join('\u0000')
   useEffect(() => {
-    if (tab === 'favorites') void loadHostCompatibility(favoritePageHostPackages)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, favoritePageHostPackagesKey, loadHostCompatibility])
+    discoveryScan.setDemand(compatibilityDemandOwner.current, data, compatibilityKeys === '' ? [] : compatibilityKeys.split('\u0000'))
+  }, [data, compatibilityKeys])
+  useEffect(() => {
+    const owner = compatibilityDemandOwner.current
+    return () => { discoveryScan.removeDemand(owner) }
+  }, [])
   const favoriteStale = useMemo(
     () => (data === null ? [] : staleFavoriteUrls(favoriteUrls, data.plugins)),
     [data, favoriteUrls])
@@ -4571,7 +4709,7 @@ export function MarketSection(props: MarketSectionProps) {
     setRecords(list => enqueue(list, {
       id: recordId, kind: 'install', name: plugin.name, url: plugin.url, state: 'running',
     }))
-    sessionStorage.setItem('dshm-pending', JSON.stringify({ url: plugin.url, name: plugin.name }))
+    window.sessionStorage.setItem('dshm-pending', JSON.stringify({ url: plugin.url, name: plugin.name }))
     fetch(api('/dsh-crate/install'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -4588,7 +4726,7 @@ export function MarketSection(props: MarketSectionProps) {
       .then(res => res.json().then(body => ({ status: res.status, body })))
       .then(({ status, body }) => {
         setBusyUrl(null)
-        sessionStorage.removeItem('dshm-pending')
+        window.sessionStorage.removeItem('dshm-pending')
         if (status === 202 && typeof body.operationId === 'string') {
           const operation = body.operation as DrainOperationWire | undefined
           setRecords(list => patchRecord(withoutHostProjection(list, body.operationId, recordId), recordId, {
@@ -4608,8 +4746,8 @@ export function MarketSection(props: MarketSectionProps) {
         if (status === 200 && body.ok && body.hot && pluginCategories(plugin).includes('theme')) {
           // Themes auto-activate on install; reload straight into the Themes
           // tab so the new look is on screen immediately.
-          sessionStorage.setItem('dshm-toast', JSON.stringify([plugin.name]))
-          sessionStorage.setItem('dshm-tab', 'themes')
+          window.sessionStorage.setItem('dshm-toast', JSON.stringify([plugin.name]))
+          window.sessionStorage.setItem('dshm-tab', 'themes')
           location.reload()
           return
         }
@@ -5047,7 +5185,7 @@ export function MarketSection(props: MarketSectionProps) {
     // unmounts this section and drops `updatingName`, so the running row's
     // progress was lost on reopen. The marker survives the unmount and lets a
     // reopen restore the row while the status poll converges the outcome.
-    sessionStorage.setItem('dshm-updating', JSON.stringify({ name }))
+    window.sessionStorage.setItem('dshm-updating', JSON.stringify({ name }))
     // The Tasks panel exists to answer "what is running right now", and an
     // update is one of the things that runs. `OperationKind` has carried
     // 'update' since the panel was written; only the enqueue was missing, so
@@ -5075,7 +5213,7 @@ export function MarketSection(props: MarketSectionProps) {
         // A response means the host settled the request (even a 4xx/5xx), so
         // the running row can hand back now. Only a lost response keeps the
         // marker + row for the poll to converge.
-        sessionStorage.removeItem('dshm-updating')
+        window.sessionStorage.removeItem('dshm-updating')
         setUpdatingName(null)
         if (status === 202 && typeof body.operationId === 'string') {
           const operation = body.operation as DrainOperationWire | undefined
@@ -5204,10 +5342,9 @@ export function MarketSection(props: MarketSectionProps) {
             setOperationsOpen(true)
             return
           }
-          // The target says it needs a newer host than this one (#404). Not
-          // a failure to report and move on from — a decision, so it gets a
-          // dialog with the two facts and a way past. The row is dropped
-          // rather than marked failed: nothing was attempted.
+          // The target's declared range excludes this host (#404, #1210).
+          // Show the range and the running version so the user can choose.
+          // Drop the row because the market refused before attempting the update.
           if (body.hostIncompatible && typeof body.hostIncompatible === 'object') {
             const notice = body.hostIncompatible as { name?: unknown; version?: unknown; requirement?: unknown; hostVersion?: unknown; npmName?: unknown }
             setRecords(list => drop(list, updateRecordId))
@@ -5363,11 +5500,13 @@ export function MarketSection(props: MarketSectionProps) {
       exists while a user is actually looking at one plugin's notes, and
       closing the dialog abandons the render — the server side caches the
       payload, so reopening is cheap. */
-  const openNotes = useCallback((name: string, current: string | null, latest: string | null, repoUrl: string | null) => {
-    setNotesFor({ name, current, latest, repoUrl })
+  const openNotes = useCallback((name: string, current: string | null, latest: string | null, target: string | null, repoUrl: string | null) => {
+    setNotesFor({ name, current, latest, target, repoUrl })
     setUpdateNotes(null)
     setNotesState('loading')
-    fetch(`${api('/dsh-crate/changelog')}?name=${encodeURIComponent(name)}`)
+    // The Update button may install an older, mature version than the repo's
+    // latest; ask for notes relative to that one (#1193).
+    fetch(`${api('/dsh-crate/changelog')}?name=${encodeURIComponent(name)}${target !== null ? `&target=${encodeURIComponent(target)}` : ''}`)
       .then(res => res.json())
       .then(body => { setUpdateNotes(body as ResolvedNotes); setNotesState('ready') })
       .catch(() => setNotesState('fail'))
@@ -5382,9 +5521,9 @@ export function MarketSection(props: MarketSectionProps) {
       .then(res => res.json().then(body => ({ status: res.status, body })))
       .then(({ status, body }) => {
         if (status === 200 && body.ok) {
-          sessionStorage.setItem('dshm-toast', JSON.stringify([name]))
-          sessionStorage.setItem('dshm-toast-mode', 'theme')
-          sessionStorage.setItem('dshm-tab', 'themes')
+          window.sessionStorage.setItem('dshm-toast', JSON.stringify([name]))
+          window.sessionStorage.setItem('dshm-toast-mode', 'theme')
+          window.sessionStorage.setItem('dshm-tab', 'themes')
           location.reload()
         } else {
           setInstallError(String(body.error || 'failed'))
@@ -6014,9 +6153,9 @@ export function MarketSection(props: MarketSectionProps) {
           if (reload) {
             // Land back in the Themes tab with the stock look on screen.
             // Drop a stale install/switch toast so it cannot resurrect.
-            sessionStorage.removeItem('dshm-toast')
-            sessionStorage.removeItem('dshm-toast-mode')
-            sessionStorage.setItem('dshm-tab', 'themes')
+            window.sessionStorage.removeItem('dshm-toast')
+            window.sessionStorage.removeItem('dshm-toast-mode')
+            window.sessionStorage.setItem('dshm-tab', 'themes')
             location.reload()
           }
         } else {
@@ -6234,7 +6373,7 @@ export function MarketSection(props: MarketSectionProps) {
     setIgnoredUpdateNames(current => {
       const next = [...new Set([...current, ...names])]
       try {
-        sessionStorage.setItem(IGNORED_UPDATES_SESSION_KEY, JSON.stringify({ boot: bootId, names: next }))
+        window.sessionStorage.setItem(IGNORED_UPDATES_SESSION_KEY, JSON.stringify({ boot: bootId, names: next }))
       } catch { /* storage unavailable: keep the dismissal for this mount */ }
       return next
     })
@@ -6245,7 +6384,7 @@ export function MarketSection(props: MarketSectionProps) {
     setIgnoredUpdateNames(current => {
       const next = current.filter(n => n !== name)
       try {
-        sessionStorage.setItem(IGNORED_UPDATES_SESSION_KEY, JSON.stringify({ boot: bootId, names: next }))
+        window.sessionStorage.setItem(IGNORED_UPDATES_SESSION_KEY, JSON.stringify({ boot: bootId, names: next }))
       } catch { /* storage unavailable: the change holds for this mount */ }
       return next
     })
@@ -6347,7 +6486,7 @@ export function MarketSection(props: MarketSectionProps) {
         previewBackup(body.backup)
       }
       if (action === 'backup') {
-        try { localStorage.setItem('dshm-webdav-last', String(Date.now())) } catch { /* storage unavailable */ }
+        try { window.localStorage.setItem('dshm-webdav-last', String(Date.now())) } catch { /* storage unavailable */ }
         setBackupMessage(t('backupDone'))
       }
     }).catch(error => {
@@ -6446,7 +6585,7 @@ export function MarketSection(props: MarketSectionProps) {
           // A fresh export flips the mode to update so the next export
           // PATCHes the same Gist instead of creating yet another one.
           setGistMode('update')
-          try { localStorage.setItem('dshm-gist-id', ref.gistId) } catch { /* storage unavailable */ }
+          try { window.localStorage.setItem('dshm-gist-id', ref.gistId) } catch { /* storage unavailable */ }
         }
         setGistMessage(t('gistExportDone'))
         setGistOk(true)
@@ -6498,7 +6637,7 @@ export function MarketSection(props: MarketSectionProps) {
     // server-side/in-memory (see savedWebdav). Storage itself may be
     // unavailable (e.g. the client test env), so never let it crash the UI.
     try {
-      localStorage.setItem(WEBDAV_STORAGE_KEY, JSON.stringify({ url: webdavUrl, username: webdavUser, auto: autoBackup }))
+      window.localStorage.setItem(WEBDAV_STORAGE_KEY, JSON.stringify({ url: webdavUrl, username: webdavUser, auto: autoBackup }))
     } catch { /* storage unavailable — config just won't survive reload */ }
   }, [autoBackup, webdavUrl, webdavUser])
 
@@ -6508,7 +6647,7 @@ export function MarketSection(props: MarketSectionProps) {
     if (!autoBackup) return
     let last = 0
     try {
-      last = Number(localStorage.getItem('dshm-webdav-last')) || 0
+      last = Number(window.localStorage.getItem('dshm-webdav-last')) || 0
     } catch { /* ignore */ }
     if (Date.now() - last >= 24 * 60 * 60 * 1000) runWebdavRef.current('backup')
   }, [autoBackup])
@@ -6565,10 +6704,18 @@ export function MarketSection(props: MarketSectionProps) {
         if (aOn !== bOn) return bOn - aOn
         const aUp = isPluginUpdatable(nameA, String(specA), updates[nameA], updatedNames, quietUpdateSet) ? 1 : 0
         const bUp = isPluginUpdatable(nameB, String(specB), updates[nameB], updatedNames, quietUpdateSet) ? 1 : 0
-        return bUp - aUp
+        if (aUp !== bUp) return bUp - aUp
+        // The chosen field applies INSIDE those two groups, not across them:
+        // "sorted by install time" must not float a plugin the user switched
+        // off above one that is running (#1142, and #745 above still holds).
+        return compareInstalledRows(
+          installedSort,
+          { name: nameA, installedAt: installTimes[nameA]?.installedAt },
+          { name: nameB, installedAt: installTimes[nameB]?.installedAt },
+        )
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `updatesLoaded` stands in for `updates`/`updatedNames`: reorder when the check lands, then hold (#631). `effectiveDisabledSet` only re-runs this when a disable state actually changed; the toggled row is the only one that moves.
-  }, [isInstalledListActive, displayedInstalled, selfName, updatesLoaded, effectiveDisabledSet, dependencyOnlyNames])
+  }, [isInstalledListActive, displayedInstalled, selfName, updatesLoaded, effectiveDisabledSet, dependencyOnlyNames, installedSort, installTimes])
   const missingRestoreCount = Object.keys(pendingDependencies).filter(name => !installedFiles.includes(name)).length
   // Self-update lives in the page header (or the Plugins tab's own tab row)
   // and the settings card, not this tab's row list (the market itself is
@@ -6631,15 +6778,24 @@ export function MarketSection(props: MarketSectionProps) {
     )
   }
 
+  /** Catalog copy wins; an installed package can still explain itself when
+   * it has no usable catalog description (#1147). Shared by all installed views. */
+  const authoredDescription = (name: string, entry: RegistryPlugin | undefined): string => {
+    for (const description of [entry?.description?.[lang], entry?.description?.en, localDescriptions[name]]) {
+      if (typeof description === 'string' && description.trim() !== '') return description.trim()
+    }
+    return ''
+  }
+
   /**
    * What the group view says about an installed plugin beyond its name: the
-   * user's own note, else the catalog's description (#1006). One place, so a
-   * plugin reads the same whether it sits in a group or in "Ungrouped".
+   * user's own note, else the author's description (#1006, #1147). One place,
+   * so a plugin reads the same in a group or in "Ungrouped".
    */
   const installedBlurb = (name: string) => {
     const entry = data === null ? undefined : catalogEntryForInstalled(data.plugins, name, String(installed[name]), repoIdentities[name], repoHints[name])
     const note = notes[name]
-    const authored = (entry?.description && (entry.description[lang] || entry.description.en)) || ''
+    const authored = authoredDescription(name, entry)
     return { entry, note, shown: note ?? authored }
   }
 
@@ -7501,6 +7657,7 @@ export function MarketSection(props: MarketSectionProps) {
       onClick={doExportLog}
     >{exportState === 'busy' ? t('exportingLog') : t('exportLog')}</Button>
   )
+  const updateCheckFailed = updateCheck.failed === null || updateCheck.failed.size > 0
 
   return (
     <div
@@ -7540,7 +7697,7 @@ export function MarketSection(props: MarketSectionProps) {
           {/* A quiet pointer back to the project — most visitors reach the
               market through a client that embeds it, with no other way to
               find the repo it came from. */}
-          <a className={css.repoLink} href="https://github.com/crate/dsh-crate" target="_blank" rel="noreferrer" title="dsh-crate · GitHub">dsh-crate</a>
+          <a className={css.repoLink} href="https://github.com/dsh-crate/dsh-crate" target="_blank" rel="noreferrer" title="dsh-crate · GitHub">dsh-crate</a>
           {version !== null && <span className={css.version} title={t('versionHint')}>v{version}</span>}
           <a className={css.submitLink} href="https://dshcrate.com" target="_blank" rel="noreferrer">{t('submitPlugin')}</a>
           {exportLogButton}
@@ -7610,13 +7767,17 @@ export function MarketSection(props: MarketSectionProps) {
                 if (record.hostOperationId !== undefined
                   && (record.state === 'done' || record.state === 'warned' || record.state === 'failed')) {
                   dismissedHostRef.current.add(record.hostOperationId)
+                  rememberDismissedHostId(record.hostOperationId)
                 }
               }
               setRecords(list => clearSettled(list))
             }}
             onCancel={record => doCancel(record)}
             onDismiss={record => {
-              if (record.hostOperationId !== undefined) dismissedHostRef.current.add(record.hostOperationId)
+              if (record.hostOperationId !== undefined) {
+                dismissedHostRef.current.add(record.hostOperationId)
+                rememberDismissedHostId(record.hostOperationId)
+              }
               setRecords(list => drop(list, record.id))
             }}
             onRefresh={() => location.reload()}
@@ -7644,6 +7805,18 @@ export function MarketSection(props: MarketSectionProps) {
             }}
           />
         </div>
+        {!marketGone && updateCheckFailed && (
+          <div className={css.updateCheckNotice}>
+            <span role="status">{t('updateCheckFailed')}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={t('updateCheckRetry')}
+              disabled={checkingUpdates}
+              onClick={() => refreshInstalled(true)}
+            >{t('loadRetry')}</Button>
+          </div>
+        )}
         {/* Backup & Restore and Diagnostics sit under Advanced rather than as
             their own top-level tabs — most users never need either, and having
             five peers up top buried the ones people actually reach for. */}
@@ -7695,8 +7868,8 @@ export function MarketSection(props: MarketSectionProps) {
               variant="primary"
               size="sm"
               onClick={() => {
-                if (hotNames.length > 0) sessionStorage.setItem('dshm-toast', JSON.stringify(hotNames))
-                sessionStorage.setItem('dshm-tab', 'installed')
+                if (hotNames.length > 0) window.sessionStorage.setItem('dshm-toast', JSON.stringify(hotNames))
+                window.sessionStorage.setItem('dshm-tab', 'installed')
                 location.reload()
               }}
             >{t('refresh')}</Button>
@@ -7730,7 +7903,7 @@ export function MarketSection(props: MarketSectionProps) {
                 aria-label={t('dismissNotice')}
                 onClick={() => {
                   setRestartNoticeDismissed(true)
-                  try { sessionStorage.setItem('dshm-restart-dismissed', String(bootId ?? '')) } catch { /* storage unavailable */ }
+                  try { window.sessionStorage.setItem('dshm-restart-dismissed', String(bootId ?? '')) } catch { /* storage unavailable */ }
                 }}
               >{t('dismiss')}</Button>
             )}
@@ -7764,6 +7937,18 @@ export function MarketSection(props: MarketSectionProps) {
             </span>
           </div>
         )}
+        {tab === 'installed' && <UpdateNotificationsPanel
+          snapshot={notificationSnapshot} t={t}
+          busy={updatingName !== null || busyUrl !== null || removingName !== null}
+          onCheck={checkUpdateNotifications}
+          onEnabled={setUpdateNotificationsEnabled}
+          onIntervalHours={setUpdateNotificationsIntervalHours}
+          onUpdate={name => {
+            if (updates[name]?.restoreRequired === true) askRestore(name)
+            else doUpdate(name)
+          }}
+          onOpenHost={openInHost === undefined ? undefined : name => openInHost.openBundle(name)}
+        />}
         {tab === 'installed' && <HostDependencyDiagnostics findings={hostDependencyFindings} t={t} />}
         {tab === 'installed' && brokenPluginNames.length > 0 && (
           <div className={css.brokenPluginNotice}>
@@ -8153,15 +8338,16 @@ export function MarketSection(props: MarketSectionProps) {
                         }}
                       />
                       </div>
-                      {compatibleWithHost && typeof hostVersion === 'string' && (
+                      {compatibleWithHost && typeof hostVersion === 'string' && pageHostPackages.length > 0 && (
                         <div className={css.hostFilterNote}>
-                          {hostCompatibilityPending > 0 || loadedHostPackages < allHostPackages.length
+                          {loadedHostPackages < pageHostPackages.length
                             ? t('hostFilterLoading')
                               .replace('{0}', String(loadedHostPackages))
-                              .replace('{1}', String(allHostPackages.length))
-                            : t('hostFilterActive')
+                              .replace('{1}', String(pageHostPackages.length))
+                            : t(hostUnavailableCount > 0 ? 'hostFilterIncomplete' : 'hostFilterActive')
                                 .replace('{0}', hostVersion)
-                                .replace('{1}', String(hostHiddenCount))}
+                                .replace('{1}', String(hostHiddenCount))
+                                .replace('{2}', String(hostUnavailableCount))}
                         </div>
                       )}
                     </div>
@@ -8195,31 +8381,19 @@ export function MarketSection(props: MarketSectionProps) {
                           </div>
                         </section>
                     )}
-                    {plugins.length === 0
-                      ? <EmptyResults blocked={pluginsAll.length > hostHiddenCount} t={t}
+                    {pagePlugins.length === 0
+                      ? <EmptyResults message={basePage.length > 0 ? 'hostFilterEmpty' : pluginsAll.length > 0 ? 'blockedFilteredEmpty' : 'empty'} t={t}
                           onClear={data.plugins.length > 0 && (q !== '' || cat !== 'all' || timeRange !== 'all' || compatibleWithHost) ? () => {
                             setQ(''); resetDiscoverSearch(value => value + 1)
                             setCat('all'); setTimeRange('all'); setCompatibleWithHost(false)
                             bodyRef.current?.querySelector('input')?.focus()
                           } : undefined}
                         />
-                      : (
-                          <>
-                            <Masonry items={pagePlugins} render={plugin => pluginCard(plugin)} />
-                            {surface === 'plugins'
-                              ? <LoadMore more={discoverMore.more} onLoad={discoverMore.loadMore} t={t} />
-                              : (
-                                  <Pager
-                                    currentPage={currentPage}
-                                    totalPages={totalPages}
-                                    pageSize={pageSize}
-                                    onGoToPage={goToPage}
-                                    onChangePageSize={changePageSize}
-                                    t={t}
-                                  />
-                                )}
-                          </>
-                        )}
+                      : <Masonry items={pagePlugins} render={plugin => pluginCard(plugin)} />}
+                    {pluginsUnblocked.length > 0 && (surface === 'plugins'
+                      ? <LoadMore more={discoverMore.more} onLoad={discoverMore.loadMore} t={t} />
+                      : <Pager currentPage={currentPage} totalPages={totalPages} pageSize={pageSize}
+                          onGoToPage={goToPage} onChangePageSize={changePageSize} t={t} />)}
                   </>
                 )
           : tab === 'favorites'
@@ -8370,7 +8544,7 @@ export function MarketSection(props: MarketSectionProps) {
                     : anyThemePlugins.length === 0
                       ? <div className={css.empty}>{t('themeEmpty')}</div>
                       : themePlugins.length === 0
-                        ? <EmptyResults blocked={themePluginsAll.length > 0} t={t}
+                        ? <EmptyResults message={themePluginsAll.length > 0 ? 'blockedFilteredEmpty' : 'empty'} t={t}
                             onClear={qThemes !== '' || themeTimeRange !== 'all' ? () => {
                               setQThemes(''); resetThemeSearch(value => value + 1)
                               setThemeTimeRange('all')
@@ -8432,6 +8606,13 @@ export function MarketSection(props: MarketSectionProps) {
                   </div>
                   <div className={css.tabSearchRow}>
                     <SearchInput key="installed" resetToken={installedSearchReset} className={css.tabSearch} placeholder={t('searchPh')} value={qInstalled} onCommit={setQInstalled} t={t} />
+                    {/* The order control belongs to the list only: groups are
+                        ordered by the user's own group order, and offering to
+                        sort them by install time would silently rearrange
+                        something that is not sorted by anything else. */}
+                    {installedView === 'list' && (
+                      <InstalledSortMenu value={installedSort} onChange={setInstalledSort} t={t} />
+                    )}
                     {installedView === 'groups' && (
                       creatingGroup
                         ? (
@@ -8735,6 +8916,18 @@ export function MarketSection(props: MarketSectionProps) {
                             const act = activations[name]
                             const meta = act !== undefined ? activationMeta(act.state, t, act.dependencyOf, act.loadedByProfile, act.library) : null
                             const version = status && status.version ? 'v' + status.version : ''
+                            // When this market installed it (#1142), in the
+                            // reader's own timezone. `updatedOn` never
+                            // replaces the install date on the line — they are
+                            // two events, and only the install date is what
+                            // the sort orders by.
+                            const stamp = installTimes[name]
+                            const installedOn = installedDateText(stamp?.installedAt)
+                            const updatedOn = installedDateText(stamp?.updatedAt)
+                            const installedWhenTitle = [
+                              installedOn === null ? t('installedAtUnknown') : `${t('installedAtLabel')} ${installedOn}`,
+                              updatedOn === null ? '' : `${t('updatedAtLabel')} ${updatedOn}`,
+                            ].filter(Boolean).join(' · ')
                             const specText = String(spec)
                             // A plain range beside the resolved version says the
                             // same thing twice. Every other spec — github:, file:,
@@ -8778,9 +8971,21 @@ export function MarketSection(props: MarketSectionProps) {
                                     <span className={css.irowMenu}>{renderInstalledBlockMenu(name)}</span>
                                   )}
                                   </div>
-                                  {(version !== '' || localDev) && (
-                                    <div className={css.irowMeta}>
-                                      {[version, localDev ? t('linkedDev') : ''].filter(Boolean).join(' · ')}
+                                  {(version !== '' || localDev || installedOn !== null) && (
+                                    <div className={css.irowMeta} title={installedWhenTitle}>
+                                      {[
+                                        version,
+                                        localDev ? t('linkedDev') : '',
+                                        // Third segment of the same line (#1142), and only
+                                        // when the market knows it. Every package installed
+                                        // before this existed, or through the CLI, has no
+                                        // date: a dash on all of those rows is a placeholder
+                                        // that says nothing, so the row stays quiet and the
+                                        // hover text explains why there is no date. The
+                                        // label says what the date is: a bare date beside a
+                                        // version reads as a release date.
+                                        installedOn === null ? '' : `${t('installedAtLabel')} ${installedOn}`,
+                                      ].filter(Boolean).join(' · ')}
                                     </div>
                                   )}
                                   {specRedundant
@@ -8839,7 +9044,7 @@ export function MarketSection(props: MarketSectionProps) {
                                       )
                                     : (() => {
                                         const note = notes[name]
-                                        const authored = (entry?.description && (entry.description[lang] || entry.description.en)) || ''
+                                        const authored = authoredDescription(name, entry)
                                         const theirs = showTheirs.includes(name)
                                         const shown = note !== undefined && !theirs ? note : authored
                                         return (
@@ -8902,7 +9107,7 @@ export function MarketSection(props: MarketSectionProps) {
                                             <button
                                               type="button"
                                               className={css.notesLink}
-                                              onClick={() => openNotes(name, status?.current ?? null, status?.latest ?? null, repoUrl)}
+                                              onClick={() => openNotes(name, status?.current ?? null, status?.latest ?? null, status?.eligibleVersion ?? null, repoUrl)}
                                             >{`${t('notesLink')} ›`}</button>
                                           </div>
                                         )}
@@ -9128,7 +9333,9 @@ export function MarketSection(props: MarketSectionProps) {
                                                     >{t('install')}</Button>
                                                   </>
                                                 )
-                                              : <span className={css.metaTag} title={t('upToDate')}>{t('upToDate')}</span>}
+                                              : updateCheck.failed === null || updateCheck.failed.has(name)
+                                                ? null
+                                                : <span className={css.metaTag} title={t('upToDate')}>{t('upToDate')}</span>}
                                 {removingName === name && <span className={css.metaTag}>{t('uninstalling')}</span>}
                                 </span>
                                 </div>
@@ -9672,9 +9879,10 @@ export function MarketSection(props: MarketSectionProps) {
                 ? notesFor.current.slice(0, 7)
                 : notesFor.current}</span>
               <span className={css.notesArrow}>→</span>
-              <span className={css.spec}>{notesFor.latest !== null && notesFor.latest.length === 40
-                ? notesFor.latest.slice(0, 7)
-                : notesFor.latest}</span>
+              <span className={css.spec}>{(() => {
+                const end = notesFor.target ?? notesFor.latest
+                return end !== null && end.length === 40 ? end.slice(0, 7) : end
+              })()}</span>
             </div>
           )}
           {notesState === 'loading' && <div className={css.spec}>{t('loading')}</div>}
@@ -9687,10 +9895,35 @@ export function MarketSection(props: MarketSectionProps) {
                   {updateNotes.release.tag !== null && <span>{' ' + updateNotes.release.tag}</span>}
                   {updateNotes.release.publishedAt !== null && <span>{' · ' + updateNotes.release.publishedAt.slice(0, 10)}</span>}
                 </div>
+                {updateNotes.beyondTarget !== undefined && (
+                  <div className={css.notesMeta}>
+                    {t('notesBeyondTarget').replace('{0}', updateNotes.release.tag ?? '').replace('{1}', updateNotes.beyondTarget)}
+                  </div>
+                )}
                 {/* Author-written markdown through the tiny converter: HTML is
                     stripped first; headings, quotes, fences, bullets, bold,
                     inline code, https links and allowlisted images only. */}
                 <div className={css.notesRendered}>{renderMarkdown(updateNotes.release.body || t('notesNone'))}</div>
+                {updateNotes.commits !== undefined && updateNotes.commits.items.length > 0 && (
+                  <>
+                    <div className={css.notesMeta}><strong>{t('notesCommits')}</strong></div>
+                    {!updateNotes.commits.found && <div className={css.notesMeta}>{t('notesCommitsRecent')}</div>}
+                    <ul className={css.notesList}>
+                      {updateNotes.commits.items.map(c => (
+                        <li key={c.sha} className={css.notesRow}>
+                          <span className={css.notesDate}>{c.date !== null ? c.date.slice(0, 10) : ''}</span>
+                          <span className={css.notesMsg}>{mdInline(c.message)}</span>
+                          {notesFor.repoUrl !== null && (
+                            <a className={css.notesSha}
+                              href={notesFor.repoUrl + '/commit/' + c.sha}
+                              target="_blank" rel="noreferrer"
+                              title={c.message}>{c.sha.slice(0, 7)}</a>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
               </div>
             )
             : updateNotes.kind === 'commits' ? (

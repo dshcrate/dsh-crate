@@ -96,7 +96,7 @@ describe.skipIf(!HAS_DSH)('web e2e: plugin market', () => {
     expect(resolved.border).not.toBe('')
   })
 
-  it('opens Settings → Plugin Market and renders the catalog paginated', async () => {
+  it('opens Settings → Plugin Crate and renders the catalog paginated', async () => {
     await openMarketUi(page)
     await waitMarketCatalog(page)
     // Direct children only: a card with curated screenshots nests a

@@ -243,6 +243,61 @@ describe('updateNotesFor', () => {
     const notes = await updateNotesFor('web', dir, 'some-plugin')
     expect(notes.kind).toBe('release')
     expect(notes.release?.body).toBe('notes here')
+    // The release also carries the commit slice between the installed commit and
+    // the update target, so the dialog can list what changed (#1193).
+    expect(notes.commits?.items.map(commit => commit.sha)).toEqual([SHA_C])
+  })
+
+  it('does not attach unrelated recent commits to a release when the installed commit is not in the list (#1194)', async () => {
+    writeProfile(dir, { 'some-plugin': 'github:o/r' }, [['o/r', 'f'.repeat(40)]])
+    mkdirSync(join(dir, 'node_modules', 'some-plugin'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'some-plugin', 'package.json'), '{"name":"some-plugin","version":"1.0.0"}')
+    stubWorld({
+      headSha: SHA_C,
+      payload: {
+        count: 1,
+        updates: {
+          'https://github.com/o/r': {
+            release: { tag: 'v2.0.0', name: 'big rewrite', publishedAt: '2026-08-26T00:00:00Z', url: 'https://github.com/o/r/releases/v2.0.0', body: 'notes here' },
+            commits: COMMITS,
+          },
+        },
+      },
+    })
+    const notes = await updateNotesFor('web', dir, 'some-plugin')
+    expect(notes.kind).toBe('release')
+    expect(notes.commits).toBeUndefined()
+  })
+
+  it('says so when the release notes are for a version beyond the update target (#1193)', async () => {
+    // The snapshot's release is the repo's LATEST; the Update button may aim
+    // at an older, installable version. Notes for v2.0.0 must not read as
+    // notes for the 1.5.0 the button installs.
+    writeProfile(dir, { 'some-plugin': 'github:o/r' }, [['o/r', SHA_A]])
+    mkdirSync(join(dir, 'node_modules', 'some-plugin'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'some-plugin', 'package.json'), '{"name":"some-plugin","version":"1.0.0"}')
+    stubWorld({
+      headSha: SHA_C,
+      payload: {
+        count: 1,
+        updates: {
+          'https://github.com/o/r': {
+            release: { tag: 'v2.0.0', name: 'big rewrite', publishedAt: '2026-08-26T00:00:00Z', url: 'https://github.com/o/r/releases/v2.0.0', body: 'notes here' },
+            commits: COMMITS,
+          },
+        },
+      },
+    })
+    const beyond = await updateNotesFor('web', dir, 'some-plugin', '1.5.0')
+    expect(beyond.kind).toBe('release')
+    expect(beyond.release?.body).toBe('notes here')
+    expect(beyond.beyondTarget).toBe('1.5.0')
+    // The beyond-target release also carries the commit slice (#1193).
+    expect(beyond.commits?.items.map(commit => commit.sha)).toEqual([SHA_C, SHA_B])
+    const matching = await updateNotesFor('web', dir, 'some-plugin', '2.0.0')
+    expect(matching.beyondTarget).toBeUndefined()
+    const noTarget = await updateNotesFor('web', dir, 'some-plugin')
+    expect(noTarget.beyondTarget).toBeUndefined()
   })
 
   it('calls the notes unavailable, not missing, when nothing answers at all', async () => {
@@ -259,7 +314,7 @@ describe('updateNotesFor', () => {
       const url = String(input)
       if (url.endsWith('/dsh-plugin-updates/latest')) return new Response('no', { status: 404 })
       if (url.endsWith('updates.json')) return new Response(JSON.stringify({ count: 0, updates: {} }), { status: 200 })
-      if (url.includes('dsh-crate.json')) {
+      if (url.includes('dshcrate.com') || url.includes('plugins.json') || url.includes('dsh-plugin-catalog')) {
         return new Response(JSON.stringify({
           plugins: [{ name: 'some-plugin', npm: 'some-plugin', url: 'https://github.com/o/r', category: 'utility' }],
         }), { status: 200 })
@@ -271,7 +326,7 @@ describe('updateNotesFor', () => {
       kind: 'source', reason: 'missing', sourceUrl: 'https://github.com/o/r',
     })
     const urls = fetchMock.mock.calls.map(call => String(call[0]))
-    expect(urls.some(url => url.includes('dsh-crate.json'))).toBe(false)
+    expect(urls.some(url => url.includes('dshcrate.com') || url.includes('plugins.json') || url.includes('dsh-plugin-catalog'))).toBe(false)
   })
 
   it('treats locally linked plugins as having no notes rather than asking anything', async () => {
@@ -295,9 +350,9 @@ describe('updateNotesFor', () => {
       if (url.includes('/commits/HEAD')) {
         return new Response(JSON.stringify({ sha: SHA_C }), { status: 200 })
       }
-      // Catalog fetch - return the crate listing with matching npm name
-      // Global region uses https://dshcrate.com/data/dsh-crate.json
-      if (url.includes('dsh-crate.json')) {
+      // Catalog fetch - return the crate JSON with matching npm name
+      // 本 fork 的目录地址是 https://dshcrate.com/data/dsh-crate.json
+      if (url.includes('dshcrate.com') || url.includes('dsh-plugin-catalog')) {
         return new Response(JSON.stringify({
           plugins: [{ name: 'npm-plugin', npm: '@scope/my-plugin', url: 'https://github.com/owner/repo', category: 'utility' }],
         }), { status: 200 })
@@ -338,7 +393,7 @@ describe('updateNotesFor', () => {
       if (url.endsWith('/dsh-plugin-updates/latest')) return new Response('no', { status: 404 })
       if (url.endsWith('updates.json')) return new Response(JSON.stringify(payload), { status: 200 })
       if (url.includes('/commits/HEAD')) return new Response(JSON.stringify({ sha: SHA_C }), { status: 200 })
-      if (url.includes('dsh-crate.json')) {
+      if (url.includes('dshcrate.com') || url.includes('plugins.json')) {
         // Two same-named entries; the first one's repo is unrelated to the
         // installed package, so a bare name match would hit it and report
         // "no notes" (#598).
@@ -370,7 +425,7 @@ describe('updateNotesFor', () => {
       if (url.endsWith('/dsh-plugin-updates/latest')) return new Response('no', { status: 404 })
       if (url.endsWith('updates.json')) return new Response(JSON.stringify({}), { status: 200 })
       if (url.includes('/commits/HEAD')) return new Response(JSON.stringify({ sha: SHA_C }), { status: 200 })
-      if (url.includes('dsh-crate.json')) {
+      if (url.includes('dshcrate.com') || url.includes('plugins.json')) {
         // Same-named entries, neither matching the installed repository.
         return new Response(JSON.stringify({
           plugins: [
@@ -405,7 +460,7 @@ describe('updateNotesFor', () => {
       const url = String(input)
       if (url.endsWith('/dsh-plugin-updates/latest')) return new Response('no', { status: 404 })
       if (url.endsWith('updates.json')) return new Response(JSON.stringify(payload), { status: 200 })
-      if (url.includes('dsh-crate.json')) {
+      if (url.includes('dshcrate.com') || url.includes('plugins.json') || url.includes('dsh-plugin-catalog')) {
         return new Response(JSON.stringify({ plugins }), { status: 200 })
       }
       if (times !== undefined && url.includes('registry.npmjs.org')) {
@@ -536,7 +591,7 @@ describe('updateNotesFor — sources other than npm (#819)', () => {
       asked.push(url)
       if (url.endsWith('/dsh-plugin-updates/latest')) return new Response('no', { status: 404 })
       if (url.endsWith('updates.json')) return new Response(JSON.stringify(options.payload ?? { count: 0, updates: {} }), { status: 200 })
-      if (url.includes('dsh-crate.json')) {
+      if (url.includes('dshcrate.com') || url.includes('plugins.json') || url.includes('dsh-plugin-catalog')) {
         return new Response(JSON.stringify({ plugins: options.plugins ?? [] }), { status: 200 })
       }
       if (url.includes('registry.npmjs.org')) {

@@ -2,7 +2,7 @@
  * Real-host layout guard for the market header in a narrow settings panel.
  *
  * #842: with up to three update buttons in the row, a 640px window squeezed
- * everything — 插件市场 broke onto two lines and each button became a vertical
+ * everything — 插件箱子 broke onto two lines and each button became a vertical
  * column of single characters, spilling outside the panel. jsdom does not lay
  * out, so only a real browser can catch this; the buttons are injected because
  * a fresh sandbox has nothing to update, and the rules under test are the CSS
@@ -55,7 +55,7 @@ describe.skipIf(!dshAvailable()).sequential('web e2e: the market header in a nar
       // Present once #842's grouping landed; on the old markup the buttons were
       // direct children of the row, so both shapes are exercised.
       const group = market.querySelector('[class$="_titleActions"]')
-      const labels = ['更新插件市场', '全部更新', '重启前都不再提醒', '立即重启']
+      const labels = ['更新插件箱子', '全部更新', '重启前都不再提醒', '立即重启']
       if (group !== null) while (group.firstChild) group.removeChild(group.firstChild)
       for (const label of labels) {
         const b = doc.createElement('button')

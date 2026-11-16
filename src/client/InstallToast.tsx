@@ -12,13 +12,13 @@ import type { Translate } from './market-data.ts'
 export function InstallToast(props: { t: Translate }) {
   const t = props.t
   const [mode] = useState(() => {
-    const value = sessionStorage.getItem('dshm-toast-mode')
-    sessionStorage.removeItem('dshm-toast-mode')
+    const value = window.sessionStorage.getItem('dshm-toast-mode')
+    window.sessionStorage.removeItem('dshm-toast-mode')
     return value
   })
   const [names, setNames] = useState<string[]>(() => {
     const value = readSession('dshm-toast')
-    sessionStorage.removeItem('dshm-toast')
+    window.sessionStorage.removeItem('dshm-toast')
     return Array.isArray(value) ? value : []
   })
   if (names.length === 0) return null

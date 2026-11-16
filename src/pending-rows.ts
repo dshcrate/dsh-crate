@@ -34,7 +34,6 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { removeRowBlocks } from './patch.ts'
 import { readInstalled } from './profile.ts'
-import { statePath } from './state.ts'
 
 export interface PendingRowCleanup {
   id: string
@@ -64,7 +63,7 @@ const STATE_VERSION = 1 as const
 
 /** Same directory as the other durable per-profile state (see pending-updates.ts). */
 export function pendingRowsFile(profileDirectory: string): string {
-  return statePath(profileDirectory, 'pending-rows.json')
+  return join(profileDirectory, '.dsh-crate', 'pending-rows.json')
 }
 
 export class PendingRowJournal {
@@ -167,7 +166,7 @@ export function repairOrphanedRows(options: {
       report.kept.push(record.name)
       continue
     }
-    const cleaned = removeRowBlocks(record.patchPath, record.rows)
+    const cleaned = removeRowBlocks(record.patchPath, record.rows, record.name)
     if (!cleaned.ok) {
       report.failed.push(record.name)
       continue

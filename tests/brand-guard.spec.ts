@@ -178,7 +178,7 @@ describe('C. 品牌文案', () => {
   it('19. e2e 设置卡片断言兼容当前与历史中英文案', () => {
     const spec = readRoot('tests/web/desktop-settings.e2e.ts')
     expect(spec).toContain('(Plugin Crate|plugin market)')
-    expect(spec).toContain('(插件箱子的?|插件市场)')
+    expect(spec).toContain('(插件箱子的?|插件箱子)')
   })
 })
 
