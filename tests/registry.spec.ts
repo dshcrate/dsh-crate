@@ -112,6 +112,33 @@ describe('loadRegistry', () => {
     vi.restoreAllMocks()
   })
 
+  it('loads the crate catalog shape (entries) as a registry', async () => {
+    // 网页端发布的是 { entries: [...] }，不是上游的 { plugins: [...] }；
+    // registry 必须按结构分派，否则线上会报 "catalog came back empty"。
+    scriptedFetch(ok({
+      schemaVersion: 2,
+      generatedAt: '2026-11-01T06:13:59.996Z',
+      total: 1,
+      entries: [{
+        i: 'EthanYoQ/AI-Novel-Writer',
+        n: 'AI-Novel-Writer',
+        d: '安装专用 AI 小说创作预设与工作台',
+        s: 1856,
+        sc: 98.9,
+        t: 'cordis-plugin',
+        vr: '0.1.0',
+        g: null,
+        cmd: 'dsh plugin --profile web add @ethanyoq/dsh-ai-novel-writer',
+      }],
+    }))
+    const registry = await loadRegistry()
+    expect(registry.plugins[0]).toMatchObject({
+      name: 'AI-Novel-Writer',
+      owner: 'EthanYoQ',
+      url: 'https://github.com/EthanYoQ/AI-Novel-Writer',
+    })
+  })
+
   it('passes through source download dates without inventing them for legacy entries', async () => {
     const stats = { downloads: 42, downloadsStart: '2026-08-25', downloadsEnd: '2026-09-23', downloadsCheckedAt: '2026-09-24' }
     scriptedFetch(ok({

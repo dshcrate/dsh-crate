@@ -8,6 +8,7 @@
     { "path": "src/presets.ts", "why": "自识别集合 MARKET_SELF_NAMES", "merge": "manual" },
     { "path": "src/official-desktop.ts", "why": "自识别集合 SELF_NAMES", "merge": "manual" },
     { "path": "src/routes.ts", "why": "自识别集合 SELF_NAMES", "merge": "manual" },
+    { "path": "src/registry.ts", "why": "fork 目录格式桥接（entries → Registry），禁止整文件覆盖", "merge": "manual" },
     { "path": "src/install.ts", "why": "安装锁定包名", "merge": "manual" },
     { "path": "src/client/index.ts", "why": "客户端包名与导出", "merge": "manual" },
     { "path": "src/client/locales.ts", "why": "三语品牌与文案", "merge": "manual" },

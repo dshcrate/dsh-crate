@@ -8,6 +8,7 @@ import { BODY_STALL_TIMEOUT_MS, HEADERS_TIMEOUT_MS, readBodyWhileProgressing } f
 import { logEvent } from './log.ts'
 import { configuredProxy, marketFetch } from './net.ts'
 import { catalogFromPackage } from './catalog-npm.ts'
+import { asCrateRegistry, isCrateCatalog } from './crate-catalog.ts'
 import { activeRegion, catalogSourcesFor, routesFor, type CatalogSource, type Region } from './regions.ts'
 import { NPM_NAME_RE } from './sources.ts'
 
@@ -224,6 +225,19 @@ function sourceKey(source: CatalogSource): string {
   return source.kind === 'npm' ? `npm:${source.registry}/${source.pkg}` : `url:${source.url}`
 }
 
+/**
+ * 目录载荷分派：按结构选适配器，而不是按地区或地址。
+ *
+ * crate 的载荷带 `entries`，上游目录带 `plugins`；两套结构各自校验，
+ * 夹具与真实数据都不会误入对方的分支。
+ *
+ * @param value - 已经 `JSON.parse` 过的目录载荷。
+ * @throws 两个适配器都可能因为数据不可用而抛出，异常留给调用方重试。
+ */
+function parseCatalog(value: unknown): Registry {
+  return isCrateCatalog(value) ? asCrateRegistry(value) : asRegistry(value)
+}
+
 /** A parsed catalog, or a thrown explanation of why it is not one. */
 function asRegistry(value: unknown): Registry {
   const data = value as Registry
@@ -335,7 +349,7 @@ export async function loadRegistry(region: Region = activeRegion()): Promise<Reg
           // `data === null` means the published version is the one in hand.
           if (data === null && reusable !== null) return servedBy(reusable.data)
           if (data === null) throw new Error('the catalog package reported no change with nothing to reuse')
-          const parsed = asRegistry(data)
+          const parsed = parseCatalog(data)
           served = { key, etag: null, modified: null, version, data: parsed }
           return servedBy(parsed)
         }
@@ -373,7 +387,7 @@ export async function loadRegistry(region: Region = activeRegion()): Promise<Reg
           return servedBy(reusable.data)
         }
         if (!res.ok) throw new Error(`HTTP ${String(res.status)}`)
-        const data = asRegistry(JSON.parse(new TextDecoder().decode(
+        const data = parseCatalog(JSON.parse(new TextDecoder().decode(
           await readBodyWhileProgressing(res, BODY_STALL_TIMEOUT_MS),
         )))
         served = {
