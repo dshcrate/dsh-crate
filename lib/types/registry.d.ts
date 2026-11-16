@@ -1,6 +1,7 @@
 /**
- * Registry access: crate 的目录（dsh-crate.json）每次请求都重新拉取。
- * 这里只负责抓取、重试、校验与 304 复用；字段映射见 src/crate-catalog.ts。
+ * Registry access: the curated list from awesome-dsh-plugin.com, fetched
+ * fresh on every request. See `loadRegistry` for why there is nothing
+ * behind it any more.
  */
 import { type Region } from './regions.ts';
 export interface RegistryPlugin {
@@ -37,9 +38,9 @@ export interface RegistryPlugin {
     /** When the source checked this statistic; never the client's fetch time. */
     downloadsCheckedAt?: string | null;
     /**
-     * npm `latest` reported by the catalog (#348). A string when known;
-     * `null`/absent when github-only or not yet backfilled — the UI omits the
-     * byline segment rather than showing a placeholder.
+     * Registry `dist-tags.latest` from awesome-dsh-plugin (#348). A string when
+     * known; `null`/absent when github-only or not yet backfilled — the UI
+     * omits the byline segment rather than showing a placeholder.
      */
     version?: string | null;
     /**
@@ -51,9 +52,9 @@ export interface RegistryPlugin {
     install: string;
     added: string;
     /**
-     * Catalog-side deprecation flags (#60): an optional extra on top of the
-     * core contract, absent for every normal entry — the market only consumes
-     * them, so a catalog without the fields behaves exactly as before.
+     * Catalog-side deprecation flags (#60): supplied by awesome-dsh-plugin,
+     * absent for every normal entry — the market only consumes them, so a
+     * catalog without the fields behaves exactly as before.
      */
     deprecated?: boolean;
     /** Catalog name of the suggested replacement plugin, when deprecated. */
