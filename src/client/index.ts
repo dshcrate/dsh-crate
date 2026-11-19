@@ -1,6 +1,6 @@
 /**
  * dsh-crate client: registers a "Market" settings section rendering the
- * plugin market UI, plus the post-install toast in the shell overlay layer.
+ * Plugin Crate UI, plus the post-install toast in the shell overlay layer.
  * Built by tsdown into the __ModuleLoader__ factory bundle at
  * client/client.js; the only externals are the loader module table's react
  * entries.

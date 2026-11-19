@@ -37,7 +37,7 @@ describe.skipIf(!dshAvailable()).sequential('web e2e: the Settings entry points 
     // path: the market in Settings, nothing else to check.
     const hasTab = await notice.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false)
     if (!hasTab) return
-    expect(await notice.innerText()).toMatch(/插件箱子已移到「插件」页|The plugin market has moved to the Plugins page/)
+    expect(await notice.innerText()).toMatch(/插件箱子已移到「插件」页|Plugin Crate has moved to the/)
     // The market stays usable below the line.
     expect(await page.locator('[class*="masonryCol"] > [class*="card"]').count()).toBeGreaterThan(0)
 

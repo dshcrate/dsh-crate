@@ -104,10 +104,26 @@ describe('storage that refuses to write', () => {
   it('still returns the defaults instead of throwing', () => {
     // Private mode, or a full quota: the market must keep working, and the
     // order it already shows is just not remembered.
-    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('quota') })
-    expect(() => { rememberSortChoice('discover', { field: 'stars' }) }).not.toThrow()
-    expect(() => { rememberInstalledSort('newest') }).not.toThrow()
-    expect(readSortChoice('discover')).toEqual(DEFAULTS)
-    setItem.mockRestore()
+    // 整个存储对象都不可用，而不是只 spy 一个方法：Linux CI 上 jsdom 与
+    // 本地 Node 的 Storage 实现不同，实例方法可能不是同一个引用。
+    const real = globalThis.localStorage
+    const broken: Storage = {
+      get length() { return 0 },
+      clear: () => undefined,
+      getItem: () => null,
+      key: () => null,
+      removeItem: () => undefined,
+      setItem: () => { throw new Error('quota') },
+    }
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: broken })
+    Object.defineProperty(window, 'localStorage', { configurable: true, writable: true, value: broken })
+    try {
+      expect(() => { rememberSortChoice('discover', { field: 'stars' }) }).not.toThrow()
+      expect(() => { rememberInstalledSort('newest') }).not.toThrow()
+      expect(readSortChoice('discover')).toEqual(DEFAULTS)
+    } finally {
+      Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: real })
+      Object.defineProperty(window, 'localStorage', { configurable: true, writable: true, value: real })
+    }
   })
 })
