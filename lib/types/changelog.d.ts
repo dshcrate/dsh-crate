@@ -20,6 +20,7 @@
  * `source` instead: its history is where it came from, and the market says
  * it has none on hand rather than that the plugin publishes none (#819).
  */
+import { type ReleaseHistory } from './release-history.ts';
 export interface ReleaseNotes {
     tag: string | null;
     name: string | null;
@@ -35,6 +36,7 @@ export interface CommitNote {
 interface UpdatesEntry {
     release?: ReleaseNotes | null;
     commits?: CommitNote[];
+    releaseHistory?: true;
 }
 interface UpdatesPayload {
     count?: number;
@@ -100,6 +102,7 @@ export interface UpdateNotes {
     kind: 'release' | 'commits' | 'npm' | 'source' | 'none';
     /** Present for `release`: the author's own notes for the latest release. */
     release?: ReleaseNotes;
+    history?: ReleaseHistory;
     /** Present for `commits`: the tail, sliced when the boundary was found. */
     commits?: {
         items: CommitNote[];
@@ -135,6 +138,6 @@ export interface UpdateNotes {
  * a neutral statement, not an error.
  */
 export declare function updateNotesFor(profile: string, explicitDir: string | undefined, name: string, 
-/** The version the Update button installs, when it is not simply "latest". */
+/** Exact version or Git SHA displayed as the update target. */
 target?: string): Promise<UpdateNotes>;
 export {};

@@ -664,7 +664,7 @@ describe('withHoistRecovery', () => {
       expect(result.stderr).not.toContain('设置 → 插件')
     })
 
-    it.each(['dsh-crate@1.66.48'])('does not send a market overlay to Settings → Plugins (%s, #909, #982)', async spec => {
+    it.each(['dsh-crate@1.66.48', 'dsh-crate@1.66.48'])('does not send a market overlay to Settings → Plugins (%s, #909, #982)', async spec => {
       // That page has no update entry for a package already in the profile.
       // The #798 note is for other plugins; for the market it is a shut door.
       const result = await withHoistRecovery(failing, 'desktop', ['add', spec], undefined, { marketFlags: false })

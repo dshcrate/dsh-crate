@@ -67,7 +67,7 @@ class Slots {
 }
 
 let stopStore: (() => void) | undefined
-afterEach(() => { cleanup(); stopStore?.(); stopStore = undefined; window.sessionStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); stopStore?.(); stopStore = undefined; sessionStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 async function setup(withOriginal = true, options: { omitActive?: boolean; active?: boolean; failInjection?: string; failRegistration?: string; deferInjection?: string } = {}) {
   let count = 1
@@ -194,7 +194,7 @@ describe('Plugins update indicator', () => {
   it('updates the shared count immediately after a same-boot dismissal', async () => {
     const b = await setup()
     act(() => {
-      window.sessionStorage.setItem('dshm-updates-ignored', JSON.stringify({ boot: 'boot-1', names: ['plugin-0'] }))
+      sessionStorage.setItem('dshm-updates-ignored', JSON.stringify({ boot: 'boot-1', names: ['plugin-0'] }))
       notifyUpdatePreferencesChanged()
     })
     expect(b.view.container.querySelector('[data-dsh-crate-update-dot]')).toBeNull()

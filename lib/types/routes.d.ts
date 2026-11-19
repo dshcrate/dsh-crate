@@ -10,6 +10,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { type PluginCommandRuntime } from './dsh-cli.ts';
 import { type AgentsLookup } from './agents.ts';
+import type { StartupRepairSnapshot } from './startup-repair-report.ts';
 import { type Channel } from './channels.ts';
 import { type Region } from './regions.ts';
 import { type LoaderEntry } from './themes.ts';
@@ -62,6 +63,8 @@ export interface HostPluginActivation {
 export interface MarketConfig {
     /** Profile the market installs into; matches the profile serving this UI. */
     profile: string;
+    /** Read the official Desktop profile's startup repair results. */
+    startupRepair?: () => StartupRepairSnapshot;
     /** Host-authoritative profile directory; ordinary DSH derives it from DSH_HOME. */
     profileDirectory?: string;
     /** Installation-owned bundles live beside this host, outside the Desktop profile. */

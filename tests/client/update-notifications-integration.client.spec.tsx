@@ -33,8 +33,8 @@ function fakeStorage(): Storage {
 }
 
 beforeEach(async () => {
-  vi.stubGlobal('window.localStorage', fakeStorage())
-  window.sessionStorage.clear()
+  vi.stubGlobal('localStorage', fakeStorage())
+  sessionStorage.clear()
   resetGithubRouting()
   resetScreenshotsCache()
   resetThemePreviewCache()
@@ -81,7 +81,7 @@ afterEach(() => {
   cleanup()
   stop?.()
   stop = undefined
-  window.sessionStorage.clear()
+  sessionStorage.clear()
   vi.unstubAllGlobals()
 })
 
@@ -104,6 +104,39 @@ describe('update notification page integration', () => {
       expect(screen.queryByRole('button', { name: en.setSelfUpdate })).toBeNull()
       expect(screen.queryByText(/1\.1\.0/)).toBeNull()
     })
+    expect(screen.getByText(en.updateChecksChanged)).toBeTruthy()
+    expect(screen.queryByText(en.setSelfUpToDate)).toBeNull()
+  })
+
+  it('distinguishes an inventory change from a failed self-update check (#1240)', async () => {
+    const own = { kind: 'npm', current: '1.0.0', latest: null, updateAvailable: false } as const
+    current = { ...current, enabled: false, nextCheckAt: null, updates: { ...current.updates, 'dsh-crate': own } }
+    await updateNotifications.refreshAfterChange()
+    render(<SettingsCard t={t} />)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    await screen.findByText(en.setSelfUpToDate)
+
+    // Another client installed a plugin. The market's cached row survives,
+    // but the shared check no longer covers the current plugin list.
+    current = { ...current, stale: true }
+    await act(async () => { await updateNotifications.refreshAfterChange() })
+    expect(screen.getByText(en.updateChecksChanged)).toBeTruthy()
+    expect(screen.getByText(en.updateChecksChangedHint)).toBeTruthy()
+    expect(screen.queryByText(en.updateChecksFailed)).toBeNull()
+    expect(screen.queryByText(en.setSelfUpToDate)).toBeNull()
+
+    current = { ...current, error: 'Check incomplete' }
+    await act(async () => { await updateNotifications.refreshAfterChange() })
+    expect(screen.getByText(en.updateChecksFailed)).toBeTruthy()
+    expect(screen.getByText(en.updateChecksFailedHint)).toBeTruthy()
+    expect(screen.queryByText(en.updateChecksChanged)).toBeNull()
+    expect(screen.queryByText(en.setSelfUpToDate)).toBeNull()
+
+    current = { ...current, stale: false, error: null, checkedAt: 102, lastSuccessAt: 102 }
+    await act(async () => { await updateNotifications.refreshAfterChange() })
+    expect(screen.getByText(en.setSelfUpToDate)).toBeTruthy()
+    expect(vi.mocked(fetch).mock.calls.some(([url, init]) =>
+      String(url) === '/dsh-crate/update-notifications' && init?.method === 'POST')).toBe(false)
   })
 
   it('clears the mounted market offer when the checked source is invalidated', async () => {
@@ -133,7 +166,8 @@ describe('update notification page integration', () => {
     } }
     await act(async () => { await updateNotifications.refreshAfterChange() })
     await screen.findByRole('button', { name: 'Update v1.3.0' })
-    expect(screen.getByText(en.updateCheckFailed)).toBeTruthy()
+    // One row that cannot be checked is not a failed check (#1227): no header banner.
+    expect(screen.queryByText(en.updateCheckFailed)).toBeNull()
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).split('?')[0] === '/dsh-crate/updates')).toHaveLength(checkCount)
   })
 

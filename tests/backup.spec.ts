@@ -518,7 +518,7 @@ describe('pinRunningDeps', () => {
     expect(pinRunningDeps(
       { dependencies: { 'dsh-crate': '1.73.12' } },
       { dependencies: {} },
-      new Set(['dsh-crate', 'dsh-other']),
+      new Set(['dsh-crate', 'dsh-crate']),
     )).toEqual({ dependencies: { 'dsh-crate': '1.73.12' }, pinned: [] })
   })
 

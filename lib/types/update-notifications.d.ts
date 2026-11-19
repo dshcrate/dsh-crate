@@ -38,6 +38,12 @@ interface MonitorDependencies {
         updates: Record<string, UpdateStatus>;
         error?: string;
     }>;
+    /**
+     * Applied to every answer on the way out, never stored: facts that change
+     * between checks (a profile-level wait learned from a failed click, #1252)
+     * must show on the next read, not the next poll.
+     */
+    overlay?(updates: Record<string, UpdateStatus>): Record<string, UpdateStatus>;
 }
 export interface UpdateNotificationMonitor {
     snapshot(): UpdateNotificationSnapshot;

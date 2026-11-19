@@ -194,6 +194,12 @@ export interface InstallResult {
      * an ordinary failure without parsing a sentence.
      */
     refusalCode?: string;
+    /**
+     * The desktop host refused with `bundle-in-use` after an update already
+     * settled behind a restart in this process (#1253): the answer is "restart",
+     * not "that plugin is in use".
+     */
+    needsRestart?: boolean;
     /** Package names pnpm reported as having ignored build scripts (ndjson). */
     ignoredBuilds?: string[];
     /**
@@ -262,6 +268,8 @@ export interface PluginCommandRuntime {
      * "nothing else is running".
      */
     busy?(): boolean;
+    /** A managed package command can still write after its caller times out. */
+    packageWritesSettled?(): boolean;
 }
 /** One running package operation, however it was started. */
 export interface DesktopPnpmHandleLike {

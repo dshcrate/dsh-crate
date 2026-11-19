@@ -396,7 +396,7 @@ describe('DiscoveryManifestIndex', () => {
       .toEqual({ 'plugin-a': null })
 
     // The panel asks afterwards, with the registry back up. A recorded failure
-    // would answer null for the whole cooldown — that is the dsh-market#614
+    // would answer null for the whole cooldown — that is the dsh-crate#614
     // shape: an install whose advice was never asked for decided the verdict
     // of the next question.
     online = true

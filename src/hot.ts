@@ -1276,15 +1276,17 @@ export async function hotUnmount(packageName: string): Promise<boolean> {
  * @param ctx - market host context; the subtree unwinds with the market's fiber.
  * @param profileDir - profile the package was installed into.
  * @param packageName - installed package to activate.
+ * @param keepOff - component ids the user's profile keeps disabled.
  * @returns whether the plugin is live without a restart, plus the reason
  * when it is not (P0-2: the UI must distinguish "restart will fix it" from
  * "this package can never hot-mount").
  */
-export async function hotMount(ctx: HotContext, profileDir: string, packageName: string): Promise<HotMountResult> {
+export async function hotMount(
+  ctx: HotContext, profileDir: string, packageName: string, keepOff?: ReadonlySet<string>,
+): Promise<HotMountResult> {
   try {
-    if (mountedFile(packageName, profileDir) !== undefined) {
-      return mountResult(hotMountFailure(packageName, profileDir))
-    }
+    const previousFailure = hotMountFailure(packageName, profileDir)
+    if (previousFailure !== null) return mountResult(previousFailure)
     const HotTree = await loadHotTreeClass()
     if (HotTree === null) {
       return {
@@ -1319,7 +1321,8 @@ export async function hotMount(ctx: HotContext, profileDir: string, packageName:
         break
       }
     }
-    let rows: HotRow[] | null
+    let rows: HotRow[]
+    let clientOnly = false
     if (texts !== null && texts.length > 0) {
       const scan = scanPatch(texts.join('\n'))
       if (scan.blocker !== null) {
@@ -1329,7 +1332,10 @@ export async function hotMount(ctx: HotContext, profileDir: string, packageName:
           reason: patchBlockerReason(scan.blocker, scan.key),
         }
       }
-      rows = scan.rows
+      rows = keepOff === undefined ? scan.rows : scan.rows.filter(row => !keepOff.has(row.id))
+      if (rows.length === 0) {
+        return { ok: false, deferred: true, reason: patchBlockerReason('disabled', 'disabled') }
+      }
     } else if (declared.length > 0) {
       // The declaration is VOID — one of its files cannot be read. The host
       // throws on a missing overlay file and skips the ENTIRE bundle, so no
@@ -1350,9 +1356,15 @@ export async function hotMount(ctx: HotContext, profileDir: string, packageName:
           reason: '该包无 bundle patch 且未声明 dsh.client,没有可热挂载的内容 / no bundle patch and no dsh.client surface — nothing to hot-mount',
         }
       }
-      shimNames.add(packageName)
+      clientOnly = true
       rows = [{ id: `client-${packageName.replace(/[^A-Za-z0-9_.-]/g, '-')}`, name: packageName }]
     }
+    // Recheck the patch even when a tree is already live, but retain its
+    // handle. Registering another include here would orphan the original.
+    if (mountedFile(packageName, profileDir) !== undefined) {
+      return mountResult(hotMountFailure(packageName, profileDir))
+    }
+    if (clientOnly) shimNames.add(packageName)
     const dir = join(profileDir, HOT_DIR)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     hotSequence += 1

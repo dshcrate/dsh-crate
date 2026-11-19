@@ -455,11 +455,12 @@ export declare function hotUnmount(packageName: string): Promise<boolean>;
  * @param ctx - market host context; the subtree unwinds with the market's fiber.
  * @param profileDir - profile the package was installed into.
  * @param packageName - installed package to activate.
+ * @param keepOff - component ids the user's profile keeps disabled.
  * @returns whether the plugin is live without a restart, plus the reason
  * when it is not (P0-2: the UI must distinguish "restart will fix it" from
  * "this package can never hot-mount").
  */
-export declare function hotMount(ctx: HotContext, profileDir: string, packageName: string): Promise<HotMountResult>;
+export declare function hotMount(ctx: HotContext, profileDir: string, packageName: string, keepOff?: ReadonlySet<string>): Promise<HotMountResult>;
 /**
  * Mount every installed client-only package (`dsh.client` without
  * `dsh.bundle`) at market startup. The bundle reconcile skips these packages

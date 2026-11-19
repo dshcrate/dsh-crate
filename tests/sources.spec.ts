@@ -82,11 +82,11 @@ describe('installTargetFor', () => {
     expect(installTargetFor({ url: 'https://gitlab.com/o/r', tarball })).toBeNull()
   })
 
-  it('installs the market itself from its own repository, like any other entry', () => {
-    // 这个包没有发布到 npm，所以目录里没有 npm 映射时只能回落到 GitHub 源；
-    // 旧版这里有一条「自家包特殊处理」，随发布状态一起删掉了。
-    expect(installTargetFor({ url: 'https://github.com/dsh-crate/dsh-crate' })).toBe('github:dsh-crate/dsh-crate')
-    expect(installTargetFor({ url: 'https://github.com/dsh-crate/dsh-crate', tarball })).toBe('github:dsh-crate/dsh-crate')
+  it('installs the market itself from its published npm package, like any other entry', () => {
+    // 插件箱子自己管理安装，且已发布到 npm：目录里尚未生成 npm 映射时，
+    // 也要固定走 registry 上的预构建包，避免安装仓库地址时先跑 prepare 构建。
+    expect(installTargetFor({ url: 'https://github.com/dsh-crate/dsh-crate' })).toBe('dsh-crate')
+    expect(installTargetFor({ url: 'https://github.com/dsh-crate/dsh-crate', tarball })).toBe('dsh-crate')
     expect(installTargetFor({ url: 'https://github.com/dsh-crate/dsh-crate/tree/main/packages/other' }))
       .toBe('github:dsh-crate/dsh-crate#path:/packages/other')
   })

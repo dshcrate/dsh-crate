@@ -382,7 +382,7 @@ describe('TARGET_RE plugin target allowlist', () => {
       'dsh-dream-skin@~0.3.0',
       'dsh-free-search@^0.4.7',
       'dsh-crate@^1.14.1',
-      'dsh-market@=1.2.3',
+      'dsh-crate@=1.2.3',
       'dsh-crate@1.14.0',
       'github:Ychris12138/dsh-usage-stats',
     ]) {
@@ -436,7 +436,7 @@ describe('isSafePluginTarget', () => {
   })
 
   it('agrees with TARGET_RE on everything it accepts whole', () => {
-    for (const target of ['dsh-crate@1.14.0', 'github:o/r#sha', '@s/n@^1.2.3', 'dsh-market@=1.2.3']) {
+    for (const target of ['dsh-crate@1.14.0', 'github:o/r#sha', '@s/n@^1.2.3', 'dsh-crate@=1.2.3']) {
       expect(TARGET_RE.test(target)).toBe(true)
       expect(isSafePluginTarget(target)).toBe(true)
     }

@@ -19,7 +19,8 @@ import { join } from 'node:path'
 import {
   carrierRowIds, composedRowName,
   foreignRowIds, disableRow, enableRow, findUserPatchPath, isProtectedModule, packagePatchFlags,
-  readUserPatchState, removeRowBlocks, rowFlagApplies, rowIdsForPackage, userPatchPackageReferences, type PatchHost,
+  readComponentSwitchPatch, readUserPatchState, removeRowBlocks, rowFlagApplies, rowIdsForPackage,
+  userPatchPackageReferences, writeComponentSwitchPatch, type PatchHost,
 } from '../src/patch.ts'
 
 function patchDir(): string {
@@ -64,8 +65,8 @@ describe('readUserPatchState', () => {
     const dir = patchDir()
     try {
       writeFileSync(join(dir, 'cordis.patch.yml'), [
-        '- id: p-dsh-market-amap-map-assistant',
-        "  name: '@p-dsh-market/amap-map-assistant'",
+        '- id: p-dsh-crate-amap-map-assistant',
+        "  name: '@p-dsh-crate/amap-map-assistant'",
         '  inject: [ sessions, skills, tools, webServer ]',
         '  disabled: true',
         '- id: still-on',
@@ -76,10 +77,10 @@ describe('readUserPatchState', () => {
       // The rows carry their own `name`s (#1113): recorded, so the caller can
       // compare them against the composed entries.
       expect(readUserPatchState(join(dir, 'cordis.patch.yml'))).toEqual({
-        disables: ['p-dsh-market-amap-map-assistant'],
+        disables: ['p-dsh-crate-amap-map-assistant'],
         forced: ['still-on'],
         inserts: [],
-        names: { 'p-dsh-market-amap-map-assistant': '@p-dsh-market/amap-map-assistant', 'still-on': 'dsh-loop' },
+        names: { 'p-dsh-crate-amap-map-assistant': '@p-dsh-crate/amap-map-assistant', 'still-on': 'dsh-loop' },
       })
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -849,6 +850,87 @@ describe('market-owned named switch rows (#1196)', () => {
 
       expect((await enableRow(patch, 'workbench', { expectedName })).ok).toBe(true)
       expect(readPatch(dir)).toBe(stale)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('carrier module switch records (#1242)', () => {
+  it.each(['carrier-package', '@example/carrier-package'])('preserves %s subpaths through official enable, rollback and uninstall', async (packageName) => {
+    const dir = patchDir()
+    try {
+      const patch = join(dir, 'cordis.patch.yml')
+      const expectedName = `${packageName}/gate`
+      const options = { expectedName, packageName, recordModuleName: true }
+      expect((await disableRow(patch, 'gate', options)).ok).toBe(true)
+      expect(load(readPatch(dir))).toEqual([{ id: 'gate', disabled: true, name: expectedName }])
+
+      // A named override survives the official writer's compaction. Its
+      // false flag is the explicit enable the market follows on the next boot.
+      writeFileSync(patch, readPatch(dir).replace('disabled: true', 'disabled: false'))
+      expect((await disableRow(patch, 'gate', options)).ok).toBe(true)
+      expect(load(readPatch(dir))).toEqual([{ id: 'gate', disabled: true, name: expectedName }])
+      const on = await enableRow(patch, 'gate', { expectedName, packageName })
+      expect(on).toMatchObject({ ok: true, removedMarketName: expectedName })
+      expect(load(readPatch(dir))).toEqual([])
+
+      // A failed package enable restores the exact module identity it removed.
+      expect((await disableRow(patch, 'gate', { ...options, expectedName: on.removedMarketName })).ok).toBe(true)
+      expect(load(readPatch(dir))).toEqual([{ id: 'gate', disabled: true, name: expectedName }])
+      expect(removeRowBlocks(patch, ['gate'], packageName).ok).toBe(true)
+      expect(load(readPatch(dir))).toEqual([])
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  it('only edits the exact current module and only uninstalls the owning package', async () => {
+    const dir = patchDir()
+    try {
+      const patch = join(dir, 'cordis.patch.yml')
+      const row = (name: string) => `- id: gate\n  disabled: true\n  name: '${name}' # dsh-crate\n`
+      const old = row('carrier-package/old')
+      const foreign = row('carrier-package-other/gate')
+      const configured = `${row('carrier-package/gate')}  config: { keep: true }\n`
+      writeFileSync(patch, old + foreign + configured + row('carrier-package/gate'))
+      expect((await enableRow(patch, 'gate', {
+        expectedName: 'carrier-package/gate', packageName: 'carrier-package', cleanOnly: true,
+      })).ok).toBe(true)
+      expect(readPatch(dir)).toBe(old + foreign + configured)
+      expect(removeRowBlocks(patch, ['gate'], 'carrier-package').ok).toBe(true)
+      expect(readPatch(dir)).toBe(foreign + configured)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+})
+
+describe('multi-component package switch (#1150)', () => {
+  it('keeps an official component enable and user choices when lifting the other market overrides', async () => {
+    const dir = patchDir()
+    try {
+      const path = join(dir, 'cordis.patch.yml')
+      const name = 'test-components'
+      const names = new Map([['main', name], ['panel', `${name}/panel`], ['extra', `${name}/extra`]])
+      const userPatch = '- id: extra\n  disabled: true\n  config:\n    keep: true\n'
+      writeFileSync(path, userPatch)
+      const off = readComponentSwitchPatch(path, name, names, new Set())
+      expect(off).not.toBeNull()
+      expect((await writeComponentSwitchPatch(path, name, off!, false)).ok).toBe(true)
+      const paused = readFileSync(path, 'utf8')
+      expect(load(paused)).toEqual([
+        { id: 'extra', disabled: true, config: { keep: true } },
+        { id: 'main', disabled: true, name },
+        { id: 'panel', disabled: true, name: `${name}/panel` },
+      ])
+      // A qualified override has a name, so the official writer keeps the
+      // row and flips the literal disable flag rather than dropping it.
+      const external = paused.replace('- id: panel\n  disabled: true', '- id: panel\n  disabled: false')
+      writeFileSync(path, external)
+      const on = readComponentSwitchPatch(path, name, names, new Set())
+      expect(on?.keepOff).toEqual(new Set(['extra']))
+      expect((await writeComponentSwitchPatch(path, name, on!, true)).ok).toBe(true)
+      expect(load(readFileSync(path, 'utf8'))).toEqual([
+        { id: 'extra', disabled: true, config: { keep: true } },
+        { id: 'panel', disabled: false, name: `${name}/panel` },
+      ])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

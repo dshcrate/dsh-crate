@@ -35,8 +35,8 @@ export interface ThemeHost {
 /** Manages theme exclusivity for one profile. */
 export interface ThemeManager {
     installedThemeNames(): Promise<Set<string>>;
-    setEntryDisabled(name: string, disabledFlag: boolean, requireLive?: boolean, rejectPending?: boolean): Promise<boolean>;
-    activateTheme(name: string): Promise<ThemeActivationResult>;
+    setEntryDisabled(name: string, disabledFlag: boolean, requireLive?: boolean, rejectPending?: boolean, keepOff?: ReadonlySet<string>): Promise<boolean>;
+    activateTheme(name: string, keepOff?: ReadonlySet<string>): Promise<ThemeActivationResult>;
 }
 interface ThemeActivationResult {
     ok: boolean;

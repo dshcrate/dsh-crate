@@ -5,7 +5,9 @@
 
 import type { DiagnosticReportV1 } from '../diagnostics.ts'
 import { findCatalogEntryForLocal } from '../catalog-local-match.ts'
-import { NPM_NAME_RE, parseSourceUrl } from '../sources.ts'
+import { catalogReleaseSourceOf, NPM_NAME_RE, parseSourceUrl } from '../sources.ts'
+import type { StartupRepairSnapshot } from '../startup-repair-report.ts'
+import type { CheckoutRecoveryStatus } from '../pending-checkout-links.ts'
 export type { SharedHostPackageDependencyFinding } from '../diagnostics.ts'
 
 /** Localized text keyed by language ('zh' / 'en'). */
@@ -168,7 +170,10 @@ export function queuedRowApplies(
     return world.plugins.some(plugin => plugin.url === row.url) ? null : 'gone'
   }
   if (world.installed[row.name] === undefined) return 'gone'
-  if (row.kind === 'update' && world.updates[row.name]?.updateAvailable !== true) {
+  // A profile-wide wait (#1252) is not "no update any more": the update is
+  // still there, it just cannot start yet. Keep the row; the drain says why.
+  if (row.kind === 'update' && world.updates[row.name]?.updateAvailable !== true
+    && world.updates[row.name]?.profileBlocked === undefined) {
     // A local restore replaces a checkout, not a newer release.
     if (row.restore === true && world.updates[row.name]?.kind === 'linked' &&
         findCatalogEntryForLocal(world.plugins, row.name) !== null) return null
@@ -241,6 +246,9 @@ export interface UpdateStatus {
       remain available as `eligibleVersion` (#991); this names the held latest.
       `estimated` means the publication time is unknown, not a release-age ETA. */
   heldUpdate?: { latest: string; until: string; estimated?: true }
+  /** Another release in this profile is still inside the safety wait, so no
+      update can start (#1252). `readyAt` is null when the end is unknown. */
+  profileBlocked?: { name: string; version: string; readyAt: string | null }
   /** Explicit source migration; never part of update-all. */
   sourceMigration?:
     | { kind: 'git-to-npm'; repo: string; target: string }
@@ -293,6 +301,10 @@ export interface DrainHistoryWire {
 
 /** Poll payload from /dsh-crate/status. */
 export interface MarketStatus {
+  /** The official Desktop host's repair of updates interrupted before this start. */
+  startupRepair?: StartupRepairSnapshot
+  /** The market's own recovery of local links disconnected by a source switch. */
+  checkoutRecovery?: CheckoutRecoveryStatus
   /** The market's own version — rendered in the heading so screenshots carry it. */
   version?: string
   /** Whether the profile package manager owns the market dependency. */
@@ -508,6 +520,43 @@ export interface ThemeSnapshot {
 /** Bound locale translator for the dsh-crate namespace. */
 export type Translate = (key: string) => string
 
+export interface MarketLocaleStore {
+  subscribe(callback: () => void): () => void
+  getSnapshot(): { active: string }
+}
+
+/** Match the languages for which the market registers its own dictionary. */
+export function marketUiLocale(active: string): 'zh-CN' | 'en' | 'ja' {
+  const language = active.toLowerCase().split(/[-_]/)[0]
+  return language === 'zh' ? 'zh-CN' : language === 'ja' ? 'ja' : 'en'
+}
+
+/** Release versions get a prefix and commit targets get a short SHA. */
+export function displayLatest(latest: string): string {
+  if (/^\d/.test(latest)) return 'v' + latest
+  if (/^[0-9a-f]{12,40}$/i.test(latest)) return latest.slice(0, 7)
+  return latest
+}
+
+/** A time is shown only when a future eligibility deadline is known. */
+export function marketHeldVersionText(
+  held: NonNullable<UpdateStatus['heldUpdate']>,
+  locale: string,
+  t: Translate,
+): string {
+  const version = displayLatest(held.latest)
+  const until = new Date(typeof held.until === 'string' ? held.until : NaN)
+  const now = new Date()
+  if (held.estimated === true || !(until.getTime() > now.getTime())) return version
+  const time = new Intl.DateTimeFormat(marketUiLocale(locale), {
+    ...(until.toDateString() === now.toDateString() ? {} : { month: 'short', day: 'numeric' }),
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(until)
+  return t('marketVersionAvailableAt').replace('{0}', version).replace('{1}', time)
+}
+
 export function avatarColor(name: string): string {
   let hash = 0
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0
@@ -515,7 +564,7 @@ export function avatarColor(name: string): string {
 }
 
 export function readSession(key: string): any {
-  try { return JSON.parse(window.sessionStorage.getItem(key) || 'null') } catch { return null }
+  try { return JSON.parse(sessionStorage.getItem(key) || 'null') } catch { return null }
 }
 
 /** Heuristic: plugins that target a terminal surface rather than the web UI. */
@@ -1762,8 +1811,8 @@ export function localizeBilingualList(parts: string[], lang: 'zh' | 'en'): strin
  * The repository name IS the plugin name in the ordinary case, because a
  * repository holding one plugin is named after it. Only the compound form
  * needs unpicking. Prefer its mapped npm package when available: a generic
- * directory such as `plugin` is not the product name. Without that mapping,
- * keep the directory-leaf fallback for source-only entries.
+ * directory such as `plugin` is not the product name. For a source-only entry,
+ * use the repository name when its directory leaf is empty or generic.
  *
  * Not a substitute for the identity: every key, lookup and install still
  * uses `name` unchanged.
@@ -1774,9 +1823,7 @@ export function pluginName(name: string, npm?: string | null): string {
   if (typeof npm === 'string' && npm.trim() !== '') return npm.trim()
   const sub = name.slice(hash + 1)
   const leaf = sub.slice(sub.lastIndexOf('/') + 1)
-  // A sub-path that is empty or trailing-slashed tells us nothing; the
-  // repository half is a better answer than an empty title.
-  return leaf === '' ? name.slice(0, hash) : leaf
+  return leaf === '' || /^(?:dsh|plugin)$/i.test(leaf) ? name.slice(0, hash) : leaf
 }
 
 /**
@@ -1833,6 +1880,11 @@ export function catalogEntryForInstalled(
 ): RegistryPlugin | undefined {
   if (/^(?:link|file):/i.test(spec)) {
     return findCatalogEntryForLocal(plugins, name, repoIdentities, repoHints) ?? undefined
+  }
+  if (spec.startsWith('https://github.com/') && spec.includes('/releases/')) {
+    const matches = plugins.filter(plugin =>
+      catalogReleaseSourceOf(spec, plugin) !== null && !sameSourceConflict(plugin, spec, repoIdentities))
+    if (matches.length === 1) return matches[0]
   }
   return entryForDep(plugins, name, spec, repoIdentities, repoHints)
 }
@@ -1892,4 +1944,46 @@ export function compareInstalledRows(
   if (right === null) return -1
   if (left === right) return a.name.localeCompare(b.name)
   return sort === 'newest' ? right - left : left - right
+}
+
+/** Masonry column count for a given content width. `maxColumns` caps Discover(3) vs Installed(2). */
+export function masonryColumnCount(width: number, maxColumns: number, minColWidth = 290, minColumns = 1): number {
+  if (!Number.isFinite(width) || width <= 0) return minColumns
+  const fitted = Math.floor((width + 10) / minColWidth)
+  return Math.min(maxColumns, Math.max(minColumns, fitted))
+}
+
+/**
+ * The one plain sentence for "another release in this profile is still inside
+ * the safety wait" (#1252): what to wait for, and until when. Says the time is
+ * unknown when it is, instead of inventing one.
+ * @param blocked - the blocker the server named.
+ * @param t - the locale lookup; `{0}` package, `{1}` version, `{2}` time.
+ * @param now - injectable for tests.
+ */
+export function profileBlockedText(
+  blocked: { name: string; version: string; readyAt: string | null },
+  t: (key: string) => string,
+  now = new Date(),
+): string {
+  const ready = blocked.readyAt === null ? Number.NaN : Date.parse(blocked.readyAt)
+  if (!Number.isFinite(ready)) {
+    return t('profileBlockedNoteUnknown').replace('{0}', blocked.name).replace('{1}', blocked.version)
+  }
+  const at = new Date(ready)
+  const time = new Intl.DateTimeFormat(undefined, {
+    ...(at.toDateString() === now.toDateString() ? {} : { month: '2-digit', day: '2-digit' }),
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(at)
+  return t('profileBlockedNote').replace('{0}', blocked.name).replace('{1}', blocked.version).replace('{2}', time)
+}
+
+/** Whether a blocker still holds at `now`; an unknown end is believed until the server says otherwise. */
+export function profileBlockStillHolds(blocked: { readyAt: string | null } | null | undefined, now = Date.now()): boolean {
+  if (blocked === null || blocked === undefined) return false
+  if (blocked.readyAt === null) return true
+  const ready = Date.parse(blocked.readyAt)
+  return !Number.isFinite(ready) || ready > now
 }

@@ -419,6 +419,9 @@ export declare function readProfileBundles(profileDirectory: string): string[];
  * @returns true when the bundle was present and removed.
  */
 export declare function removeProfileBundle(profileDirectory: string, name: string): boolean;
+/** Undo one switch's removal without replacing other manifest fields or a
+ * bundle order edited by another writer. The caller holds the profile lock. */
+export declare function restoreRemovedProfileBundle(profileDirectory: string, name: string, before: ProfileManifestSnapshot): boolean;
 /**
  * Re-add a bundle to `dsh.profile.bundles` after a carrier toggle-off (#224).
  * Idempotent: a bundle already present is left untouched. The name is appended

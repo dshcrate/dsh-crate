@@ -14,7 +14,7 @@ const response = (value: unknown, status = 200) => new Response(JSON.stringify(v
 const release = (patch: Partial<UpdateStatus> = {}): UpdateStatus => ({
   kind: 'npm', version: '1.0.0', current: '1.0.0', latest: '2.0.0', updateAvailable: true, ...patch,
 })
-afterEach(() => { vi.restoreAllMocks(); window.sessionStorage.clear(); window.localStorage.clear(); vi.useRealTimers() })
+afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear(); localStorage.clear(); vi.useRealTimers() })
 
 describe('shared update notification snapshot', () => {
   it('starts with automatic checks off and a six-hour interval', () => {
@@ -173,8 +173,8 @@ describe('shared update notification snapshot', () => {
   })
 
   it('shares boot dismissals and completed updates without clearing them before the boot is known', () => {
-    window.sessionStorage.setItem('dshm-updates-ignored', JSON.stringify({ boot: 'host-1', names: ['ignored'] }))
-    window.sessionStorage.setItem('dshm-restart', JSON.stringify({ boot: 'host-1', updated: ['dsh-crate', 'done'] }))
+    sessionStorage.setItem('dshm-updates-ignored', JSON.stringify({ boot: 'host-1', names: ['ignored'] }))
+    sessionStorage.setItem('dshm-restart', JSON.stringify({ boot: 'host-1', updated: ['dsh-crate', 'done'] }))
     expect(ignoredUpdatesForBoot('')).toEqual([])
     expect(notificationNames(snapshot({ boot: '' }))).toEqual([])
     expect(ignoredUpdatesForBoot('host-1')).toEqual(['ignored'])
@@ -184,9 +184,9 @@ describe('shared update notification snapshot', () => {
     expect(notificationNames(data)).toEqual(['generation', 'ordinary'])
     expect(notificationNames({ ...data, enabled: false })).toEqual(['generation', 'ordinary'])
     expect(notificationNames({ ...data, boot: 'host-2' })).toEqual(['done', 'dsh-crate', 'generation', 'ignored', 'ordinary'])
-    expect(JSON.parse(window.sessionStorage.getItem('dshm-updates-ignored')!).boot).toBe('host-1')
+    expect(JSON.parse(sessionStorage.getItem('dshm-updates-ignored')!).boot).toBe('host-1')
     expect(ignoredUpdatesForBoot('host-2')).toEqual([])
-    expect(window.sessionStorage.getItem('dshm-updates-ignored')).toBeNull()
+    expect(sessionStorage.getItem('dshm-updates-ignored')).toBeNull()
   })
 })
 
@@ -223,8 +223,8 @@ describe('unread plugin update notifications', () => {
     await reloaded.refresh()
     expect(unseenNotificationNames(reloaded.getSnapshot())).toEqual([])
     expect(notificationNames(reloaded.getSnapshot())).toEqual(['alpha'])
-    expect(window.localStorage.length).toBe(1)
-    expect(window.sessionStorage.length).toBe(0)
+    expect(localStorage.length).toBe(1)
+    expect(sessionStorage.length).toBe(0)
   })
 
   it('announces new targets, installed versions and source kinds independently', () => {
@@ -282,8 +282,8 @@ describe('unread plugin update notifications', () => {
     store.acknowledge()
     const changed = vi.fn()
     store.subscribe(changed)
-    const key = window.localStorage.key(0)!
-    window.localStorage.removeItem(key)
+    const key = localStorage.key(0)!
+    localStorage.removeItem(key)
     window.dispatchEvent(new StorageEvent('storage', { key }))
     expect(changed).toHaveBeenCalledTimes(1)
     expect(unseenNotificationNames(store.getSnapshot())).toEqual(['alpha'])
@@ -300,8 +300,8 @@ describe('unread plugin update notifications', () => {
     expect(unseenNotificationNames(data)).toEqual([])
     expect(unseenNotificationNames({ ...data, boot: 'host-2' })).toEqual(['alpha'])
     expect(unseenNotificationNames({ ...data, boot: '' })).toEqual(['alpha'])
-    expect(window.localStorage.length).toBe(0)
-    expect(window.sessionStorage.length).toBe(1)
+    expect(localStorage.length).toBe(0)
+    expect(sessionStorage.length).toBe(1)
   })
 
   it.each(['{broken', JSON.stringify({ version: 0, fingerprints: [] }), JSON.stringify({ version: 1, fingerprints: [1] })])
@@ -309,7 +309,7 @@ describe('unread plugin update notifications', () => {
       const store = createUpdateNotificationsStore(vi.fn())
       const data = snapshot({ profileKey: 'invalid-receipt', updates: { alpha: release() } })
       store.acknowledge(data)
-      window.localStorage.setItem(window.localStorage.key(0)!, invalid)
+      localStorage.setItem(localStorage.key(0)!, invalid)
       expect(unseenNotificationNames(data)).toEqual(['alpha'])
       store.acknowledge(data)
       expect(unseenNotificationNames(data)).toEqual([])

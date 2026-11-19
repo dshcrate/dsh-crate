@@ -15,19 +15,26 @@ import {
 } from '../../src/client/dismissed-host.ts'
 
 /** A reload: the cache goes, storage stays. */
-function reload(): Set<string> {
+function reload(): ReadonlySet<string> {
   resetDismissedHostCache()
   return dismissedHostIdSet()
 }
 
 beforeEach(() => {
-  window.localStorage.clear()
+  localStorage.clear()
   resetDismissedHostCache()
 })
 
 describe('cleared host rows', () => {
   it('keeps a cleared id across a reload', () => {
     rememberDismissedHostId('op-1')
+    expect([...reload()]).toEqual(['op-1'])
+  })
+
+  it('updates a reader that was mounted before the dismissal', () => {
+    const mounted = dismissedHostIdSet()
+    rememberDismissedHostId('op-1')
+    expect(mounted.has('op-1')).toBe(true)
     expect([...reload()]).toEqual(['op-1'])
   })
 
@@ -46,7 +53,7 @@ describe('cleared host rows', () => {
   it('ignores an empty id instead of storing a row no host will report', () => {
     rememberDismissedHostId('')
     expect(reload().size).toBe(0)
-    expect(window.localStorage.getItem(DISMISSED_HOST_STORAGE_KEY)).toBeNull()
+    expect(localStorage.getItem(DISMISSED_HOST_STORAGE_KEY)).toBeNull()
   })
 
   it('drops the oldest ids once the cap is reached', () => {
@@ -58,12 +65,12 @@ describe('cleared host rows', () => {
   })
 
   it('reads nothing from a key this code did not write', () => {
-    window.localStorage.setItem(DISMISSED_HOST_STORAGE_KEY, 'not json at all')
+    localStorage.setItem(DISMISSED_HOST_STORAGE_KEY, 'not json at all')
     expect(reload().size).toBe(0)
   })
 
   it('keeps only strings from a hand-edited array', () => {
-    window.localStorage.setItem(DISMISSED_HOST_STORAGE_KEY, JSON.stringify(['op-1', 42, null, '', 'op-1', { id: 'op-2' }]))
+    localStorage.setItem(DISMISSED_HOST_STORAGE_KEY, JSON.stringify(['op-1', 42, null, '', 'op-1', { id: 'op-2' }]))
     expect([...reload()]).toEqual(['op-1'])
   })
 

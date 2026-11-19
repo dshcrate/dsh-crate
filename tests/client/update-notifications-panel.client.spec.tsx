@@ -11,7 +11,7 @@ const snapshot = (overrides: Partial<UpdateNotificationSnapshot> = {}): UpdateNo
   nextCheckAt: 1_801_000, stale: false, error: null, boot: 'boot',
   updates: {}, updateExempt: [], disabled: [], blocked: [], ...overrides,
 })
-afterEach(() => { cleanup(); window.sessionStorage.clear() })
+afterEach(() => { cleanup(); sessionStorage.clear() })
 
 describe('shared update review', () => {
   it.each([en, zh, ja])('offers all four intervals while automatic checks are off', async locale => {
@@ -70,7 +70,7 @@ describe('shared update review', () => {
   })
 
   it('uses the sidebar reminder policy for the summary, including boot-scoped dismissals', () => {
-    window.sessionStorage.setItem('dshm-updates-ignored', JSON.stringify({ boot: 'boot', names: ['dsh-crate'] }))
+    sessionStorage.setItem('dshm-updates-ignored', JSON.stringify({ boot: 'boot', names: ['dsh-crate'] }))
     render(<UpdateNotificationsPanel t={t} busy={false} onUpdate={vi.fn()}
       onCheck={vi.fn()} onEnabled={vi.fn()} onIntervalHours={vi.fn()} snapshot={snapshot({ updates: {
         'dsh-crate': { kind: 'npm', current: '1.0.0', version: '1.0.0', latest: '2.0.0', updateAvailable: true },
@@ -111,6 +111,18 @@ describe('shared update review', () => {
       onCheck={vi.fn()} onEnabled={vi.fn()} onIntervalHours={vi.fn()} snapshot={snapshot({ checkedAt: null, lastSuccessAt: null })} />)
     expect(screen.getByText(en.updateChecksPending)).toBeTruthy()
     expect(screen.queryByText(en.updateChecksNone)).toBeNull()
+  })
+
+  it('reports a changed plugin list instead of a failed check when nothing failed', () => {
+    render(<UpdateNotificationsPanel t={t} busy={false} onUpdate={vi.fn()}
+      onCheck={vi.fn()} onEnabled={vi.fn()} onIntervalHours={vi.fn()} snapshot={snapshot({ stale: true, error: null })} />)
+    // The monitor raises `stale` without an error when another client changed
+    // the inventory; claiming "some information is unavailable" made a healthy
+    // install look like a failed check.
+    expect(screen.getByText(en.updateChecksChanged)).toBeTruthy()
+    expect(screen.getByText(en.updateChecksChangedHint)).toBeTruthy()
+    expect(screen.queryByText(en.updateChecksFailed)).toBeNull()
+    expect(screen.queryByText(en.updateChecksFailedHint)).toBeNull()
   })
 
   it('requires an explicit check and reports a failed preference save', async () => {

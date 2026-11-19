@@ -9,15 +9,17 @@
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
+import { isDeepStrictEqual } from 'node:util'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { FiberState } from '@deepseek-ai/cordis'
 import { load as loadYaml } from 'js-yaml'
 import { packageFileFromRegistry } from './catalog-npm.ts'
-import { statePath } from './state.ts'
 import { forgetCatalog, loadRegistry, pluginCategories, type Registry, type RegistryPlugin } from './registry.ts'
 import { settingsNamespaceState } from './settings.ts'
+import { statePath } from './state.ts'
 import {
   buildEnvFromUnknown, cleanHotDir, forgetInstalled, hotMount, hotMountFailure, hotUnmount, listHotMounts, listLiveHotMounts,
   MAX_BLOCKED, MAX_BLOCKED_NAME, MAX_FAVORITES, MAX_NOTE, MAX_UPDATE_EXEMPT,
@@ -33,11 +35,15 @@ import { catalogReleaseSourceOf, publishedReleaseUpdate, type CatalogReleaseSour
 import { diagnosePackageManifests } from './diagnostics.ts'
 import {
   BOOT_ID, cancelActive, probePnpm, progress, provisionPnpm, runDshPlugin, setBuildEnvSource, TARGET_RE,
-  type PluginCommandRuntime,
+  type InstallResult, type PluginCommandRuntime,
 } from './dsh-cli.ts'
 import { packageOfEntryName } from './entry-identity.ts'
 import { PendingRowJournal, repairOrphanedRows } from './pending-rows.ts'
-import { addProfileBundle, bundleExpressionRowIds, bundleOptOutRowIds, bundlePatchInsertedIds, bundlesDroppedFromProfile, declareProfileDependency, dropFromManifest, dropReleaseAgeExcludes, generationManagedNames, hasLoadableEntry, holdsNativeAddon, INBOX_BUNDLES, isDshProfileName, profileDir, readDependencyOwners, readGitResolutionCommit, readInstalled, readInstalledManifest, readInstalledPackageName, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readProfileBundles, readProfileManifestSnapshot, removeProfileBundle, parsePatchRows, restoreProfileManifest, setAllowBuilds, shippedInsertedRowIds, type ProfileManifestSnapshot } from './profile.ts'
+import {
+  hasUnsettledPackageRun, loadHostProfileLock, PendingCheckoutLinks, withIdleProfile,
+  type CheckoutRecoveryEntry, type CheckoutRecoveryStatus, type PendingCheckoutLink,
+} from './pending-checkout-links.ts'
+import { addProfileBundle, bundleExpressionRowIds, bundleOptOutRowIds, bundlePatchInsertedIds, bundlesDroppedFromProfile, declareProfileDependency, dropFromManifest, dropReleaseAgeExcludes, generationManagedNames, hasLoadableEntry, holdsNativeAddon, INBOX_BUNDLES, isDshProfileName, profileDir, readDependencyOwners, readGitResolutionCommit, readInstalled, readInstalledManifest, readInstalledPackageName, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readProfileBundles, readProfileManifestSnapshot, removeProfileBundle, parsePatchRows, restoreProfileManifest, restoreRemovedProfileBundle, setAllowBuilds, shippedInsertedRowIds, type ProfileManifestSnapshot } from './profile.ts'
 import { assessProfile, classifyPeer, introducedDuplicateNames, introducedRisks, type CompatibilityRisk } from './compatibility.ts'
 import { runningAgentIds, type AgentsLookup } from './agents.ts'
 import { DrainCoordinator, DrainNoop, DrainRefusal, type DrainExecutionResult, type DrainIntent, type DrainMutationGate } from './drain.ts'
@@ -48,9 +54,10 @@ import { applyBundleOrder, mergeOrder, readBundleRules, readBundleStack, validat
 import { applyPreset, deletePreset, listPresets, previewPreset, savePreset } from './presets.ts'
 import { createProfileSnapshot, DEFAULT_MAX_SNAPSHOTS, deleteSnapshot, listSnapshots, restoreSnapshot } from './snapshot.ts'
 import { readHostRecoveryView, restoreHostRecoveryBackup } from './host-recovery.ts'
+import type { StartupRepairSnapshot } from './startup-repair-report.ts'
 import { trialValidate } from './trial.ts'
 import { catalogRepoKey, findCatalogEntryForLocal, findInstalledAlias, gitCommitOfTarget, githubCommitOfTarget, githubTargetAtCommit, gitAllowBuildsKey, gitRefOfTarget, gitTargetAtCommit, gitUpdateTarget, hostedRepoKey, lookupRepoFromUrl, pinnedAllowBuildsKeys, installTargetFor, isGenerationLink, isLocalSpec, NPM_NAME_RE, parseSourceUrl, repoOfTarget, restoreBlockedByWorkspace, restoreTargetForLocal, sourceFallbackFor, workspaceProtocolDeps } from './sources.ts'
-import { failureDetail, groupConflictsByOwner, installApplied, isHostPortCollision, isStaleUpdate, parseIgnoredBuildEntries, parseIgnoredBuilds, parsePrepareKey, parsePrepareNotAllowed, pnpmBlockedByOpenFiles, pnpmNeverStarted, pnpmRefusedYoungRelease, RELEASE_AGE_OVERRIDE, removeDanglingHostBridge, removeLeftoverProfileLink, retargetCollections, updateApplied, validateAddedPlugins, withHoistRecovery } from './install.ts'
+import { checkoutSourceExists, detachCheckoutLink, failureDetail, groupConflictsByOwner, installApplied, isHostPortCollision, isStaleUpdate, keepCheckoutDetached, parseIgnoredBuildEntries, parseIgnoredBuilds, parsePrepareKey, parsePrepareNotAllowed, pnpmBlockedByOpenFiles, pnpmNeverStarted, pnpmRefusedYoungRelease, recordedCheckoutLink, RELEASE_AGE_OVERRIDE, removeDanglingHostBridge, removeLeftoverProfileLink, restoreCheckoutLink, retargetCollections, updateApplied, validateAddedPlugins, withHoistRecovery, type DetachedCheckoutLink } from './install.ts'
 import { classifyPnpmFailure } from './pnpm-compat.ts'
 import { asChannel, CHANNELS, DIST_TAG, resolveChannel, type Channel } from './channels.ts'
 import {
@@ -61,7 +68,9 @@ import { resolveRegion } from './region-probe.ts'
 import { acceleratedTarget, resolveHeadCommit } from './accelerate.ts'
 import { mismatchedWorkspaceRoot } from './github-install-target.ts'
 import { sourceWebUrl, updateNotesFor } from './changelog.ts'
-import { checkUpdates, isUpdatablePlugin, compareVersions, fetchNpmLatest, invalidateUpdates, readVersionMaturity, resolveDesktopMatureUpdate, resolveGitRemoteHead, isUpgrade, latestPublishedRecently, setUpdateRegistry, versionOnChannel } from './updates.ts'
+import { isCommitId } from './release-history.ts'
+import { activeReleaseBlockers, headlineBlocker, releaseBlockedMessage } from './release-blockers.ts'
+import { applyProfileBlockers, checkUpdates, isUpdatablePlugin, compareVersions, fetchNpmLatest, invalidateUpdates, readVersionMaturity, resolveDesktopMatureUpdate, resolveGitRemoteHead, isUpgrade, latestPublishedRecently, setUpdateRegistry, versionOnChannel } from './updates.ts'
 import { isExactReleaseVersion, isStableReleaseVersion } from './release-candidates.ts'
 import { createUpdateNotificationMonitor } from './update-notifications.ts'
 import { DEFAULT_UPDATE_CHECK_INTERVAL_HOURS, isUpdateCheckIntervalHours } from './update-notification-settings.ts'
@@ -72,8 +81,9 @@ import { detectedDebugger, detectedSupervisor, restartAllowed, scheduleRestart, 
 import type { RecoveryPlugin } from './recovery.ts'
 import { activationAfterReplace, brokenClientBundles, bundlePatchIsEmpty, checkClientBundle, defaultHostRuntimeFacts, findUnservedConfigNamespaces, hasHostHalf, hostPeerGate, isDeclaredLibraryDsh, newlyBrokenBundles, peerGateRemedy, verifyActivation } from './verify.ts'
 import {
-  carrierRowIds, composedRowName, disableRow, enableRow, findUserPatchPath, foreignRowIds, isProtectedModule, loaderEntryId, packagePatchFlags, rowFlagApplies,
-  readUserPatchState, removeRowBlocks, rowIdsForPackage, userPatchPackageReferences,
+  carrierRowIds, commitComponentSwitchPatch, composedRowName, disableRow, enableRow, findUserPatchPath, foreignRowIds, isProtectedModule, loaderEntryId, packagePatchFlags, rowFlagApplies,
+  readComponentSwitchPatch, readUserPatchState, removeRowBlocks, rollbackComponentSwitchPatch, rowIdsForPackage,
+  userPatchPackageReferences, writeComponentSwitchPatch,
 } from './patch.ts'
 import {
   createProfileBackup, downloadWebdav, MAX_BACKUP_BYTES, mergeRestoreManifest, pinRunningDeps, restoreProfileBackup, secretFileCount, unportableDeps, uploadWebdav, WebdavUrlError,
@@ -190,6 +200,8 @@ export interface HostPluginActivation {
 export interface MarketConfig {
   /** Profile the market installs into; matches the profile serving this UI. */
   profile: string
+  /** Read the official Desktop profile's startup repair results. */
+  startupRepair?: () => StartupRepairSnapshot
   /** Host-authoritative profile directory; ordinary DSH derives it from DSH_HOME. */
   profileDirectory?: string
   /** Installation-owned bundles live beside this host, outside the Desktop profile. */
@@ -378,6 +390,16 @@ function declaresBundle(profileDirectory: string, name: string): boolean {
 const PROFILE_HMR_ENTRY = '@deepseek-ai/dsh-hmr'
 /** How long to wait for that replay before mounting: the same ceiling as #814. */
 const PROFILE_HMR_REPLAY_WAIT_MS = 8000
+const ACTIVE_FIBER_STATE: FiberState.ACTIVE = 2
+const CHECKOUT_REPAIR_WAIT_MS = 30_000
+const CHECKOUT_REPAIR_INTERVAL_MS = 1_000
+
+type CheckoutRepairRound = {
+  deadline: number
+  inFlight: boolean
+  reason: CheckoutRecoveryEntry['reason']
+  records: PendingCheckoutLink[]
+}
 
 /**
  * The allowBuilds key pnpm itself printed when it refused a build, per package
@@ -615,6 +637,7 @@ export function mountMarketRoutes(
   // re-applies the same choice on every boot (ported from dsh-plugin-hub).
   const userPatchPath = findUserPatchPath(host, activeProfileDir)
   const commands: PluginCommandRuntime = commandRuntime ?? { runPlugin: runDshPlugin, probePnpm, provisionPnpm, cancelActive }
+  const checkoutLinks = new PendingCheckoutLinks(activeProfileDir)
 
   /**
    * Internal roles for one in-memory replay of a mutating route.
@@ -981,6 +1004,11 @@ export function mountMarketRoutes(
   /** Routes currently running a drain probe; `/status.busy` covers them. */
   let preflightActive = 0
   let mutationBusy = false
+  let checkoutRepairTimer: ReturnType<typeof setTimeout> | undefined
+  let checkoutRepairRound: CheckoutRepairRound | undefined
+  let checkoutRecovery: CheckoutRecoveryStatus | undefined
+  let checkoutHostLock: ReturnType<typeof loadHostProfileLock> | undefined
+  let checkoutHostLockUnavailableLogged = false
   /** The shared mutation chain: every mutating operation appends to it. */
   let mutationChain: Promise<unknown> = Promise.resolve()
 
@@ -1134,7 +1162,7 @@ export function mountMarketRoutes(
    * user asked for OFF, and a failed unmount leaves the plugin live only for
    * this session. There the durable disable is the contract, not an error.
    */
-  async function setPluginEnabled(name: string, enabled: boolean): Promise<{ ok: boolean; reason?: string }> {
+  async function setPluginEnabled(name: string, enabled: boolean, keepOff?: ReadonlySet<string>, hostReplays = false): Promise<{ ok: boolean; reason?: string }> {
     const dir = activeProfileDir
     const wasDisabled = disabled.has(name)
     if (enabled) disabled.delete(name)
@@ -1142,7 +1170,7 @@ export function mountMarketRoutes(
     let ok: boolean
     let reason: string | undefined
     if (enabled) {
-      if (listHotMounts().includes(name)) {
+      if (!hostReplays && listHotMounts().includes(name)) {
         ok = true
         reason = hotMountFailure(name, dir) ?? undefined
       } else if (carrierRowIds(dir, name).length > 0) {
@@ -1157,7 +1185,7 @@ export function mountMarketRoutes(
         // already reported as "restart to apply" — so nothing is gained by
         // doing it live, and the host can die trying.
         ok = true
-      } else if (await themes.setEntryDisabled(name, false)) {
+      } else if (!hostReplays && await themes.setEntryDisabled(name, false, false, false, keepOff)) {
         ok = true
       } else {
         // #758: the group toggle reaches this branch without the route-level
@@ -1172,8 +1200,14 @@ export function mountMarketRoutes(
           const remedy = peerGateRemedy(gate)
           ok = false
           reason = `${name} 新版要求宿主 ${gate.range},当前运行 ${gate.runtimeVersion},开了也不会生效;${remedy.zh} / ${name} needs host ${gate.range} but this host runs ${gate.runtimeVersion} — enabling it now would not take effect; ${remedy.en}`
+        } else if (hostReplays) {
+          // The watcher may coalesce a fast off/on into the original
+          // composition. Resume any entries it still owns and never
+          // create a second tree to race its replay.
+          await themes.setEntryDisabled(name, false, false, false, keepOff)
+          ok = true
         } else {
-          const result = await hotMount(host, dir, name)
+          const result = await hotMount(host, dir, name, keepOff)
           // A package that can only come up on a start (config rows, a
           // carrier's disables) was never tried, so there is no crash to
           // refuse to persist (#575). Failing the enable here left the
@@ -1193,20 +1227,11 @@ export function mountMarketRoutes(
           // restart ends the process that holds it, and the flag with it.
         }
       }
-    } else if (carrierRowIds(dir, name).length > 0) {
-      // A carrier replaces something: its patch disables stock rows and its
-      // own rows stand in for them. Stopping its rows here, while the stock
-      // ones are still disabled, leaves a window with neither — the page
-      // throws and does not come back (#1010). The swap needs one
-      // composition, which only the layers below and a restart provide.
-      ok = true
     } else {
-      ok = await hotUnmount(name) || await themes.setEntryDisabled(name, true)
-      if (!ok) {
-        // Nothing was live (boot-skipped client shim, user-patch-managed
-        // entry, or already off): the persisted flag is the contract.
-        ok = true
-      }
+      await disableLivePlugin(name, carrierRowIds(dir, name).length > 0)
+      // The persisted flag applies on the next composition even if the
+      // unmount did not finish in this process.
+      ok = true
     }
     if (!ok && enabled) {
       // Put the in-memory view back before persisting: it is the same object
@@ -1217,6 +1242,111 @@ export function mountMarketRoutes(
     }
     writeMarketState(dir, { disabled, groups, groupOrder })
     return { ok, reason }
+  }
+
+  async function disableLivePlugin(name: string, carrier: boolean): Promise<void> {
+    // The carrier and what it replaces must switch in one composition.
+    if (!carrier && !await hotUnmount(name)) await themes.setEntryDisabled(name, true)
+  }
+
+  type LayerSwitch = {
+    ok: boolean
+    reason: string | undefined
+    patchRows: string[]
+    patchWrite: { ok: boolean; reason: string | null } | null
+    carrierRows: string[]
+    isCarrier: boolean
+    bundleSwitch: { ok: boolean; reason: string | null }
+    unchanged?: true
+    replayPending?: true
+  }
+
+  /** Commit a multi-component OFF before touching the running plugin.
+   * Carriers leave the stack first so their foreign patch stops applying. */
+  async function disableComponentLayers(
+    name: string,
+    choices: NonNullable<ReturnType<typeof readComponentSwitchPatch>>,
+    stackToggle: boolean,
+    result: LayerSwitch,
+    keepLegacyPatch: boolean,
+  ): Promise<LayerSwitch> {
+    const commit = () => {
+      let bundleBefore: ProfileManifestSnapshot | undefined
+      let patchChange: ReturnType<typeof commitComponentSwitchPatch>['change']
+      let stage: 'bundle' | 'patch' | 'state' = 'bundle'
+      const removeFromStack = () => {
+        if (!stackToggle) return
+        stage = 'bundle'
+        const before = readProfileManifestSnapshot(config.profile, activeProfileDir)
+        if (removeProfileBundle(activeProfileDir, name)) bundleBefore = before
+      }
+      try {
+        if (result.isCarrier) removeFromStack()
+        if (!keepLegacyPatch) {
+          stage = 'patch'
+          const { ok, reason, change } = commitComponentSwitchPatch(userPatchPath, name, choices, false)
+          result.patchWrite = { ok, reason }
+          if (!ok) throw new Error(reason ?? 'could not write the component settings')
+          patchChange = change
+        }
+        if (!result.isCarrier) removeFromStack()
+        stage = 'state'
+        writeMarketState(activeProfileDir, { disabled: new Set(disabled).add(name), groups, groupOrder })
+        disabled.add(name)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        logEvent('warn', 'toggle', name + ': component disable stopped during ' + stage + ' — ' + detail)
+        if (stage === 'bundle') {
+          result.reason = '保存插件列表失败。请检查权限后重试 / Could not save the plugin list. Check permissions and retry.'
+          result.bundleSwitch = { ok: false, reason: result.reason }
+        } else if (stage === 'patch') {
+          result.reason = result.patchWrite?.reason ?? '保存组件设置失败。请检查权限后重试 / Could not save component settings. Check permissions and retry.'
+        } else {
+          result.reason = '保存停用状态失败。请检查权限后重试 / Could not save the disabled state. Check permissions and retry.'
+        }
+
+        let restored = true
+        if (bundleBefore !== undefined) {
+          try {
+            restored = restoreRemovedProfileBundle(activeProfileDir, name, bundleBefore)
+          } catch (rollbackError) {
+            restored = false
+            logEvent('warn', 'toggle', name + ': bundle rollback failed — ' + String(rollbackError))
+          }
+          if (!restored) result.bundleSwitch = { ok: false, reason: '插件列表没能恢复 / The plugin list could not be restored.' }
+        }
+        if (patchChange !== undefined) {
+          const rollback = rollbackComponentSwitchPatch(userPatchPath, patchChange)
+          if (!rollback.ok) {
+            restored = false
+            result.patchWrite = rollback
+            logEvent('warn', 'toggle', name + ': component settings rollback failed — ' + rollback.reason)
+          }
+        }
+        if (!restored) {
+          result.reason = '停用失败，配置没能恢复。请到官方插件页检查设置 / Disable failed and settings could not be restored. Check the DSH Plugins page.'
+          logEvent('error', 'toggle', name + ': partial disable, check the plugin settings')
+        }
+        result.ok = false
+        result.unchanged = true
+      }
+    }
+    // The official manager uses this lock for its own patch and manifest
+    // changes. Keep the synchronous disk commit and its rollback together.
+    try {
+      if (withIdleProfile(activeProfileDir, commit) === null) {
+        const reason = '插件正在操作中。等操作结束后重试 / A plugin operation is in progress. Try again when it finishes.'
+        return { ...result, ok: false, reason, unchanged: true }
+      }
+    } catch (error) {
+      logEvent('warn', 'toggle', name + ': could not use the profile lock — ' + String(error))
+      const reason = '未能保存停用。检查插件设置后重试 / Could not save this disable. Check the plugin settings and retry.'
+      return { ...result, ok: false, reason, unchanged: true }
+    }
+    if (!result.ok) return result
+    await disableLivePlugin(name, result.isCarrier)
+    logEvent('info', 'toggle', name + ': off ok=true')
+    return result
   }
 
   /**
@@ -1236,62 +1366,27 @@ export function mountMarketRoutes(
   async function switchPluginLayers(
     name: string,
     enabled: boolean,
-    switchLive = () => setPluginEnabled(name, enabled),
-  ): Promise<{
-    ok: boolean
-    reason: string | undefined
-    patchRows: string[]
-    /** The subset a user decision can be read from (#876). */
-    userRows: string[]
-    patchWrite: { ok: boolean; reason: string | null } | null
-    /** Foreign rows this bundle rewires: disabled or given a new inject (#224, #938). */
-    carrierRows: string[]
-    isCarrier: boolean
-    bundleSwitch: { ok: boolean; reason: string | null }
-  }> {
+    switchLive?: (keepOff?: ReadonlySet<string>) => Promise<{ ok: boolean; reason?: string }>,
+    replayDeadline = Infinity,
+  ): Promise<LayerSwitch> {
     const packageDir = join(activeProfileDir, 'node_modules', name)
-    // Capture module identity before switching the entry off.
-    const namedRows = new Set<string>()
-    if (!enabled) {
-      for (const id of shippedInsertedRowIds(packageDir)) {
-        if (composedRowName(host, id) === name) namedRows.add(id)
-      }
-    }
-    const { ok: liveOk, reason: liveReason } = await switchLive()
-    let ok = liveOk
-    let reason = liveReason
-    // Durable patch-layer write (port of dsh-plugin-hub): the package's
-    // bundle rows get 'disabled: true|false' in the user patch layer,
-    // which DSH's HMR applies within ~1s AND the loader re-applies on
-    // every boot. Client-only packages have no bundle rows — the
-    // market's own state.json replay covers those.
-    const patchRows = rowIdsForPackage(host, activeProfileDir, name)
-    // Rows the package ships switched off are the bundle's own default, not
-    // the user's decision (#876). Turning a package ON must not force those
-    // opt-in rows open — `enableRow` answers a row with no `disabled` block
-    // by appending `disabled: false`, and the user layer sits on top, so the
-    // plugin's "stays off until selected" rows would come on silently as a
-    // side effect of a bug fix. Skipped only while something else is left to
-    // flip: a package whose rows are ALL opt-in rows still has to be
-    // switchable.
     const optOutRows = new Set(bundleOptOutRowIds(packageDir))
-    // Rows the bundle decides itself, by expression (`disabled: !!js …`),
-    // are a third shape next to opt-in rows: the market can neither read
-    // nor overrule the condition, so enabling the package must leave them
-    // exactly as the bundle ships them (#1043).
     const expressionRows = new Set(bundleExpressionRowIds(packageDir))
-    const decided = patchRows.filter(rowId => !optOutRows.has(rowId))
-    /** Rows that can carry a USER decision about this package — see above. */
-    const userRows = decided.length > 0 ? decided : patchRows
-    // Disable-carrier (#224): a bundle whose patch DISABLES a plugin it
-    // does not own (dsh-postgres-backends disables session-persistence-jsonl).
-    // Disabling only its inserted rows leaves that foreign disable applying
-    // on every boot — the bundle stays in the stack — so drop it from
-    // dsh.profile.bundles entirely, which stops its whole patch at once
-    // (including any config side effects it carries). Enabling re-adds it.
-    // A bundle that merely reconfigures a neighbour (config without
-    // disabled) is NOT dropped: #147 requires disabling it to leave the
-    // neighbour live, and the e2e fixture-cross re-enable breaks otherwise.
+    const wasDisabled = disabled.has(name)
+    const componentRows = rowIdsForPackage(host, activeProfileDir, name)
+    const installed = componentRows.length > 1 ? readInstalled(config.profile, activeProfileDir) : {}
+    const componentNames = new Map<string, string | null>()
+    for (const id of componentRows) {
+      const expected = composedRowName(host, id)
+      const owner = expected === null ? null : packageOfEntryName(expected) ?? expected
+      // The id fallback for carried modules does not make a different
+      // package's live entry ours (#1089).
+      if (owner !== null && owner !== name && Object.hasOwn(installed, owner)) continue
+      componentNames.set(id, expected)
+    }
+    const choices = componentNames.size > 1
+      ? readComponentSwitchPatch(userPatchPath, name, componentNames, new Set([...optOutRows, ...expressionRows]))
+      : null
     const carrierRows = carrierRowIds(activeProfileDir, name)
     const foreignRows = foreignRowIds(activeProfileDir, name)
     const isCarrier = carrierRows.length > 0
@@ -1310,12 +1405,92 @@ export function mountMarketRoutes(
     // fixture-cross e2e exist to prevent.
     const stackToggle = !INBOX_BUNDLES.has(name) && declaresBundle(activeProfileDir, name)
       && (isCarrier || foreignRows.length === 0)
+    const allOff = choices !== null && choices.ownOff.size === componentNames.size
+    // Old market builds stored only a state flag and unmarked, standalone
+    // rows. Keep their ON path for that otherwise indistinguishable format.
+    const userAllOff = allOff && !(wasDisabled && choices.legacyAllOff)
+    const initial: LayerSwitch = {
+      ok: true, reason: undefined, patchRows: componentRows,
+      patchWrite: null, carrierRows, isCarrier, bundleSwitch: { ok: true, reason: null },
+    }
+    if (userAllOff && enabled) {
+      return {
+        ...initial,
+        ok: false,
+        unchanged: true,
+        reason: '所有组件都已关闭。请到官方插件页开启插件，再选择所需组件 / All components are off. Enable the plugin and turn on the components you want on the DSH Plugins page.',
+      }
+    }
+    if (!enabled && componentNames.size > 1) {
+      // An OFF request against an already-off package must not label the
+      // user's own rows as an old market disable on a later ON.
+      if (allOff && (!stackToggle || !isCarrier || !readProfileBundles(activeProfileDir).includes(name))) {
+        return { ...initial, unchanged: true }
+      }
+      if (choices === null) {
+        const reason = '组件设置读不到。请检查设置后重试 / Could not read component settings. Check them and retry.'
+        return { ...initial, ok: false, reason, unchanged: true, patchWrite: { ok: false, reason } }
+      }
+      return disableComponentLayers(name, choices, stackToggle, initial, allOff && !userAllOff)
+    }
+    const componentPatch = choices !== null && (choices.suspended
+      || (!wasDisabled && choices.customized && choices.keepOff.size > 0 && choices.keepOff.size < componentNames.size))
+      ? choices : null
+    const keepOff = enabled ? componentPatch?.keepOff : undefined
+    const reBundle = enabled && !isCarrier && !readProfileBundles(activeProfileDir).includes(name)
+    // A watched profile would compose a newly re-added bundle after the
+    // market mount and run a second copy. Restore the user layer, then
+    // observe that host's own replay of the selected components.
+    const replayWaitMs = reBundle && stackToggle && componentPatch?.suspended === true && switchLive === undefined
+      ? config.hostReplayWaitMs ?? (liveNames().has(PROFILE_HMR_ENTRY) ? PROFILE_HMR_REPLAY_WAIT_MS : 0)
+      : 0
+    // Capture module identity before switching the entry off.
+    const namedRows = new Map<string, string>()
+    if (!enabled) {
+      for (const id of shippedInsertedRowIds(packageDir)) {
+        const moduleName = composedRowName(host, id)
+        if (moduleName === name || (isCarrier && moduleName !== null && packageOfEntryName(moduleName) === name)) {
+          namedRows.set(id, moduleName)
+        }
+      }
+    }
+    const { ok: liveOk, reason: liveReason } = await (switchLive === undefined
+      ? setPluginEnabled(name, enabled, keepOff, replayWaitMs > 0)
+      : switchLive(keepOff))
+    let ok = liveOk
+    let reason = liveReason
+    // Durable patch-layer write (port of dsh-plugin-hub): the package's
+    // bundle rows get 'disabled: true|false' in the user patch layer,
+    // which DSH's HMR applies within ~1s AND the loader re-applies on
+    // every boot. Client-only packages have no bundle rows — the
+    // market's own state.json replay covers those.
+    const patchRows = rowIdsForPackage(host, activeProfileDir, name)
+    // Rows the package ships switched off are the bundle's own default, not
+    // the user's decision (#876). Turning a package ON must not force those
+    // opt-in rows open — `enableRow` answers a row with no `disabled` block
+    // by appending `disabled: false`, and the user layer sits on top, so the
+    // plugin's "stays off until selected" rows would come on silently as a
+    // side effect of a bug fix. Skipped only while something else is left to
+    // flip: a package whose rows are ALL opt-in rows still has to be
+    // switchable.
+    // Rows the bundle decides itself, by expression (`disabled: !!js …`),
+    // are a third shape next to opt-in rows: the market can neither read
+    // nor overrule the condition, so enabling the package must leave them
+    // exactly as the bundle ships them (#1043).
+    // Disable-carrier (#224): a bundle whose patch DISABLES a plugin it
+    // does not own (dsh-postgres-backends disables session-persistence-jsonl).
+    // Disabling only its inserted rows leaves that foreign disable applying
+    // on every boot — the bundle stays in the stack — so drop it from
+    // dsh.profile.bundles entirely, which stops its whole patch at once
+    // (including any config side effects it carries). Enabling re-adds it.
+    // A bundle that merely reconfigures a neighbour (config without
+    // disabled) is NOT dropped: #147 requires disabling it to leave the
+    // neighbour live, and the e2e fixture-cross re-enable breaks otherwise.
     // Enabling something the stack no longer carries (another manager
     // removed it, or this route did when it was last turned off) has to
     // put it back, or the rows flip, the switch reads on and nothing
     // composes it on the next boot. Unlike a carrier this does NOT force
     // a restart: the enable below still brings it up in this process.
-    const reBundle = enabled && !isCarrier && !readProfileBundles(activeProfileDir).includes(name)
     let stackChanged = false
     let bundleSwitch: { ok: boolean; reason: string | null } = { ok: true, reason: null }
     // A failed enable leaves the stack as it was, like the row layer below
@@ -1361,7 +1536,7 @@ export function mountMarketRoutes(
     // The name the loader composed for a row, for the rows whose user-layer
     // entry carries one of its own: the host skips an entry whose `name` is
     // not this one, so its flag is not a decision about the row (#1113).
-    const expectedNameFor = (rowId: string): string | null => namedRows.has(rowId) ? name : composedRowName(host, rowId)
+    const expectedNameFor = (rowId: string): string | null => namedRows.get(rowId) ?? composedRowName(host, rowId)
     /** A user-layer flag counts only when the row it names is this entry. */
     const rowIsOurs = (rowId: string): boolean => prePatch !== null && rowFlagApplies(prePatch, rowId, expectedNameFor(rowId))
     if (patchRows.length > 0 && patchGate && prePatch !== null) {
@@ -1377,10 +1552,16 @@ export function mountMarketRoutes(
       // a row the environment keeps off, which then held the package pending
       // at activation — except, again, to clean a block an earlier disable
       // left, which restores the expression's authority, never a forced on.
-      const targets = enabled
-        ? patchRows.filter(rowId => (!optOutRows.has(rowId) && !expressionRows.has(rowId)) || (rowIsOurs(rowId) && prePatch.disables.includes(rowId)))
-        : patchRows
+      let targets: string[] = []
       const flipped: { rowId: string; removedMarketName?: string }[] = []
+      if (componentPatch !== null) {
+        const result = await writeComponentSwitchPatch(userPatchPath, name, componentPatch, enabled)
+        if (!result.ok) patchWrite = result
+      } else {
+        targets = enabled
+          ? patchRows.filter(rowId => (!optOutRows.has(rowId) && !expressionRows.has(rowId)) || (rowIsOurs(rowId) && prePatch.disables.includes(rowId)))
+          : patchRows
+      }
       for (const rowId of targets) {
         // #1110: an opt-in or expression row that the user's layer still holds
         // closed can only be CLEANED here. `enableRow`'s force-enable appends
@@ -1391,8 +1572,10 @@ export function mountMarketRoutes(
         const expectedName = expectedNameFor(rowId)
         // DSH drops a simple id/disabled override when enabling would restore
         // the bundle default. An exact module name keeps the user's enable
-        // in the shared patch layer for followOutsideEnable (#1196).
-        const recordModuleName = stackToggle && !isCarrier && !cleanOnly && namedRows.has(rowId)
+        // in the shared patch layer for followOutsideEnable (#1196). A
+        // carrier's own subpath entries need that same evidence (#1242);
+        // its bundle row can also return through recovery, not user intent.
+        const recordModuleName = stackToggle && !cleanOnly && namedRows.has(rowId)
         const result: Awaited<ReturnType<typeof enableRow>> = enabled
           ? await enableRow(userPatchPath, rowId, { cleanOnly, expectedName, packageName: name })
           : await disableRow(userPatchPath, rowId, { expectedName, recordModuleName, packageName: name })
@@ -1440,6 +1623,7 @@ export function mountMarketRoutes(
               logEvent('warn', 'toggle', `${name}: dsh.profile.bundles rollback failed — ${bundleSwitch.reason}`)
             }
           }
+          if (wasDisabled) await setPluginEnabled(name, false)
           // #575: a failed enable leaves the plugin as it was, and the
           // reply has to say so — otherwise the switch shows a state the
           // rollback just undid.
@@ -1448,8 +1632,37 @@ export function mountMarketRoutes(
         }
       }
     }
+    let replayPending: true | undefined
+    if (replayWaitMs > 0) {
+      if (!bundleSwitch.ok) {
+        if (wasDisabled) await setPluginEnabled(name, false)
+        ok = false
+        reason = '保存插件列表失败。请检查权限后重试 / Could not save the plugin list. Check permissions and retry.'
+      } else if (ok) {
+        const remaining = new Set([...componentNames.keys()].filter(id => !keepOff?.has(id)))
+        const waitUntil = Math.min(Date.now() + replayWaitMs, replayDeadline)
+        do {
+          for (const entry of host.loader.entries()) {
+            const id = loaderEntryId(entry).split(':').at(-1) ?? ''
+            const entryName = entry.options.name
+            if (!remaining.has(id) || (entryName !== name && (entryName === undefined || packageOfEntryName(entryName) !== name))) continue
+            const fiber = entry.fiber as { state?: number } | undefined
+            if (fiber !== undefined && (fiber.state === undefined || fiber.state === ACTIVE_FIBER_STATE)) {
+              remaining.delete(id)
+            }
+          }
+          const waitLeft = waitUntil - Date.now()
+          if (remaining.size === 0 || waitLeft <= 0) break
+          await new Promise(resolve => setTimeout(resolve, Math.min(250, waitLeft)))
+        } while (!disposed)
+        if (remaining.size > 0) {
+          replayPending = true
+          reason = '设置已保存，组件尚未加载。请重启 DSH 后查看 / Settings saved. If the components have not started, restart DSH.'
+        }
+      }
+    }
     logEvent(ok ? 'info' : 'error', 'toggle', `${name}: ${enabled ? 'on' : 'off'} ok=${String(ok)}`)
-    return { ok, reason, patchRows, userRows, patchWrite, carrierRows, isCarrier, bundleSwitch }
+    return { ok, reason, patchRows, patchWrite, carrierRows, isCarrier, bundleSwitch, replayPending }
   }
 
   /**
@@ -1616,8 +1829,8 @@ export function mountMarketRoutes(
   }
 
   /** Every plugin command goes through the pnpm-drift recovery wrapper (#20). */
-  const runPlugin = (profile: string, args: string[], preserveProfilePolicy = false) =>
-    withHoistRecovery(commands.runPlugin, profile, args, activeProfileDir, { marketFlags, preserveProfilePolicy, ...(preserveProfilePolicy ? { releaseAgeBypass: false } : {}) })
+  const runPlugin = (profile: string, args: string[], preserveProfilePolicy = false, run = commands.runPlugin) =>
+    withHoistRecovery(run, profile, args, activeProfileDir, { marketFlags, preserveProfilePolicy, ...(preserveProfilePolicy ? { releaseAgeBypass: false } : {}) })
   /** The same, minus the release-age bypass: for a fresh install pinned to a young release (#594). */
   const runPluginKeepingReleaseAge = (profile: string, args: string[]) =>
     withHoistRecovery(commands.runPlugin, profile, args, activeProfileDir, { releaseAgeBypass: false, marketFlags })
@@ -1743,6 +1956,13 @@ export function mountMarketRoutes(
     // source pinned to the commit captured before the update.
     | { kind: 'git'; target: string; beforeCommit: string; lockfileBefore: ProfileLockfileSnapshot; keepRepairedLock: boolean }
     | { kind: 'manifest' }
+    | {
+      kind: 'linked-checkout'
+      link: DetachedCheckoutLink
+      target: string
+      manifestBefore: ProfileManifestSnapshot
+      lockfileBefore: LockfileCapture
+    }
 
   type UpdateRollbackPlan =
     | { available: true; source: UpdateRollbackSource }
@@ -1821,20 +2041,32 @@ export function mountMarketRoutes(
     }
   }
 
-  /** Resolved npm version for one dependency in a captured pnpm v9 importer. */
-  function capturedNpmVersion(snapshot: ProfileLockfileSnapshot, name: string): string | null {
-    if (!snapshot.present) return null
+  type LockedDependency = string | { specifier?: unknown; version?: unknown }
+
+  function capturedDependencies(snapshot: ProfileLockfileSnapshot): Record<string, LockedDependency> | undefined {
+    if (!snapshot.present) return undefined
     try {
       const parsed = loadYaml(snapshot.contents.toString('utf8')) as {
-        importers?: Record<string, { dependencies?: Record<string, string | { version?: unknown }> }>
+        importers?: Record<string, { dependencies?: Record<string, LockedDependency> }>
       } | null
-      const dependency = parsed?.importers?.['.']?.dependencies?.[name]
-      const raw = typeof dependency === 'string' ? dependency : dependency?.version
-      if (typeof raw !== 'string') return null
-      return /^(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\(|$)/.exec(raw)?.[1] ?? null
+      return parsed?.importers?.['.']?.dependencies
     } catch {
-      return null
+      return undefined
     }
+  }
+
+  /** Resolved npm version for one dependency in a captured pnpm v9 importer. */
+  function capturedNpmVersion(snapshot: ProfileLockfileSnapshot, name: string): string | null {
+    const dependency = capturedDependencies(snapshot)?.[name]
+    const raw = typeof dependency === 'string' ? dependency : dependency?.version
+    if (typeof raw !== 'string') return null
+    return /^(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\(|$)/.exec(raw)?.[1] ?? null
+  }
+
+  function lockRecordsRelease(snapshot: ProfileLockfileSnapshot, name: string, target: string): boolean {
+    const dependency = capturedDependencies(snapshot)?.[name]
+    return typeof dependency === 'object' && dependency !== null
+      && dependency.specifier === target && dependency.version === target
   }
 
   /** Restore lockfile bytes atomically, or restore the fact it was absent. */
@@ -2015,6 +2247,281 @@ export function mountMarketRoutes(
     return { ok: true, detail: null }
   }
 
+  function verifyRestoredCheckout(name: string): void {
+    if (!hasLoadableEntry(activeProfileDir, name, config.dshInstallDir)) {
+      throw new Error('the original checkout has no loadable entry at its saved location')
+    }
+  }
+
+  function checkingCheckoutRepair(round: CheckoutRepairRound): boolean {
+    return !disposed && checkoutRepairRound === round && performance.now() < round.deadline
+  }
+
+  function reportCheckoutRepair(round: CheckoutRepairRound, entries: CheckoutRecoveryEntry[]): void {
+    if (disposed || checkoutRepairRound !== round) return
+    checkoutRepairRound = undefined
+    if (checkoutRepairTimer !== undefined) clearTimeout(checkoutRepairTimer)
+    checkoutRepairTimer = undefined
+    checkoutRecovery = entries.length === 0 ? undefined : { checking: false, entries }
+  }
+
+  function checkoutRecoveryEntry(record: PendingCheckoutLink, reason: CheckoutRecoveryEntry['reason']): CheckoutRecoveryEntry {
+    let sourceExists = false
+    try {
+      const link = recordedCheckoutLink(activeProfileDir, record.name, record.spec, record.rawTarget)
+      sourceExists = checkoutSourceExists(link)
+    } catch { /* A moved or inaccessible checkout cannot be confirmed. */ }
+    return { name: record.name, reason, sourceExists }
+  }
+
+  function checkoutLinkOutstanding(record: PendingCheckoutLink, manifest: ReturnType<typeof captureUpdateManifest>): boolean {
+    if (manifest.ok && manifest.snapshot.dependencies[record.name] !== record.spec) return false
+    try {
+      return lstatSync(join(activeProfileDir, 'node_modules', record.name), { throwIfNoEntry: false }) === undefined
+    } catch {
+      return true
+    }
+  }
+
+  function checkoutCommandBusy(): boolean {
+    return mutationBusy || commands.busy?.() === true || commands.packageWritesSettled?.() === false
+  }
+
+  function clearCompletedCheckout(record: PendingCheckoutLink): void {
+    if (checkoutCommandBusy() || hasUnsettledPackageRun(activeProfileDir)) return
+    withIdleProfile(activeProfileDir, () => {
+      if (checkoutCommandBusy() || hasUnsettledPackageRun(activeProfileDir)) return
+      const manifest = captureUpdateManifest()
+      if (checkoutLinkOutstanding(record, manifest)) return
+      const latest = checkoutLinks.list()
+      const kept = latest.filter(item => item.name !== record.name || item.spec !== record.spec || item.rawTarget !== record.rawTarget)
+      if (kept.length !== latest.length) checkoutLinks.save(kept)
+    })
+  }
+
+  function tickCheckoutRepair(round: CheckoutRepairRound, attempt: boolean): void {
+    if (disposed || checkoutRepairRound !== round) return
+    if (performance.now() >= round.deadline) {
+      let records = round.records
+      try { records = checkoutLinks.list() } catch { /* Report the last readable records. */ }
+      const manifest = captureUpdateManifest()
+      const entries = records
+        .filter(record => checkoutLinkOutstanding(record, manifest))
+        .map(record => checkoutRecoveryEntry(record, round.reason))
+      if (entries.length > 0) {
+        logEvent('warn', 'checkout-recovery', `automatic checkout recovery stopped after 30 seconds (${round.reason})`)
+      }
+      reportCheckoutRepair(round, entries)
+      return
+    }
+    // The clock also runs while the host helper is pending, so a stalled
+    // import or callback cannot extend the round. Every write checks it again.
+    if (attempt && !round.inFlight) {
+      round.inFlight = true
+      void repairCheckoutLinks(round).finally(() => { round.inFlight = false })
+    }
+    if (checkoutRepairRound !== round) return
+    checkoutRepairTimer = setTimeout(() => {
+      checkoutRepairTimer = undefined
+      tickCheckoutRepair(round, true)
+    }, Math.min(CHECKOUT_REPAIR_INTERVAL_MS, round.deadline - performance.now()))
+    checkoutRepairTimer.unref?.()
+  }
+
+  function startCheckoutRepair(switchedName?: string): void {
+    if (disposed || checkoutRepairRound !== undefined) return
+    let records: PendingCheckoutLink[]
+    try {
+      records = checkoutLinks.list()
+    } catch (error) {
+      logEvent('warn', 'checkout-recovery', `could not read pending local checkout links — ${String(error)}`)
+      return
+    }
+    if (records.length === 0) {
+      checkoutRecovery = undefined
+      return
+    }
+    if (switchedName !== undefined) {
+      const switchedRecord = records.find(record => record.name === switchedName)
+      if (switchedRecord === undefined) return
+      // A successful switch or one whose synchronous rollback reconnected the
+      // link must not reopen some other package's expired recovery.
+      if (!checkoutLinkOutstanding(switchedRecord, captureUpdateManifest())) {
+        try {
+          clearCompletedCheckout(switchedRecord)
+        } catch (error) {
+          logEvent('warn', 'checkout-recovery', `could not clear a completed checkout switch record — ${String(error)}`)
+        }
+        return
+      }
+    }
+    const round: CheckoutRepairRound = {
+      deadline: performance.now() + CHECKOUT_REPAIR_WAIT_MS, inFlight: false, reason: 'profile-busy', records,
+    }
+    checkoutRepairRound = round
+    checkoutRecovery = { checking: true, entries: [] }
+    tickCheckoutRepair(round, switchedName === undefined)
+  }
+
+  function checkoutRepairBlocked(round: CheckoutRepairRound): boolean {
+    if (!checkingCheckoutRepair(round)) return true
+    if (checkoutCommandBusy()) {
+      round.reason = 'profile-busy'
+      return true
+    }
+    if (hasUnsettledPackageRun(activeProfileDir)) {
+      round.reason = 'package-run'
+      return true
+    }
+    return false
+  }
+
+  async function repairCheckoutLinks(round: CheckoutRepairRound): Promise<void> {
+    try {
+      round.records = checkoutLinks.list()
+      if (round.records.length === 0) {
+        reportCheckoutRepair(round, [])
+        return
+      }
+      if (checkoutRepairBlocked(round)) return
+      const repairLocked = (): boolean => {
+        if (checkoutRepairBlocked(round)) return false
+        const records = checkoutLinks.list()
+        const current = captureUpdateManifest()
+        if (!current.ok) throw new Error(current.detail)
+        const lockfile = captureProfileLockfile()
+        if (!lockfile.ok) throw new Error(lockfile.detail)
+        const lockedDependencies = capturedDependencies(lockfile.snapshot)
+        const kept: PendingCheckoutLink[] = []
+        for (const record of records) {
+          if (current.snapshot.dependencies[record.name] !== record.spec) continue
+          try {
+            const link = recordedCheckoutLink(activeProfileDir, record.name, record.spec, record.rawTarget)
+            if (lstatSync(link.path, { throwIfNoEntry: false }) !== undefined) continue
+            const locked = lockedDependencies?.[record.name]
+            if (typeof locked === 'object' && locked !== null && locked.specifier !== record.spec) {
+              throw new Error('the lockfile now records a different source')
+            }
+            restoreCheckoutLink(link, false, () => verifyRestoredCheckout(record.name))
+            logEvent('info', 'update-rollback', `${record.name}: reconnected the local checkout after the source switch`)
+          } catch (error) {
+            kept.push(record)
+            logEvent('warn', 'update-rollback', `${record.name}: could not reconnect the saved local checkout — ${String(error)}`)
+          }
+        }
+        if (kept.length !== records.length) checkoutLinks.save(kept)
+        reportCheckoutRepair(round, kept.map(record => checkoutRecoveryEntry(record, 'check-failed')))
+        return true
+      }
+      const repaired = withIdleProfile(activeProfileDir, repairLocked)
+      if (repaired === null && !checkoutRepairBlocked(round)) {
+        round.reason = 'writer-lock'
+        checkoutHostLock ??= loadHostProfileLock(config.dshInstallDir ?? findDshInstallDir())
+        const hostLock = await checkoutHostLock
+        if (checkoutRepairBlocked(round)) return
+        if (hostLock === null) {
+          if (!checkoutHostLockUnavailableLogged) {
+            checkoutHostLockUnavailableLogged = true
+            logEvent('warn', 'checkout-recovery', 'host checkout lock helper unavailable; only unoccupied profile locks can be used')
+          }
+        } else {
+          try {
+            await hostLock(join(activeProfileDir, 'package.json'), async () => repairLocked(), { waitMs: 0 })
+          } catch (error) {
+            if (!(error instanceof Error) || !error.message.includes('timed out waiting for the writer lock')) throw error
+          }
+        }
+      }
+    } catch (error) {
+      if (checkingCheckoutRepair(round)) {
+        logEvent('warn', 'checkout-recovery', `could not settle pending local checkout links — ${String(error)}`)
+        reportCheckoutRepair(round, round.records.map(record => checkoutRecoveryEntry(record, 'check-failed')))
+      }
+    }
+  }
+
+  function entriesExcept<T>(entries: Record<string, T> | undefined, name: string): Record<string, T> {
+    const other = { ...entries }
+    delete other[name]
+    return other
+  }
+
+  function bundleRowsExcept(snapshot: ProfileManifestSnapshot, name: string): unknown {
+    if (!snapshot.profileBundles.present) return []
+    const rows = snapshot.profileBundles.value
+    return Array.isArray(rows) ? rows.filter(row => row !== name) : rows
+  }
+
+  function restoreLinkedUpdate(
+    name: string,
+    source: Extract<UpdateRollbackSource, { kind: 'linked-checkout' }>,
+    restoreProfile: boolean,
+  ): { ok: boolean; detail: string | null } {
+    const busy = { ok: false, detail: 'another plugin operation is running' }
+    if (commands.busy?.() === true || commands.packageWritesSettled?.() === false) return busy
+    try {
+      return withIdleProfile(activeProfileDir, () => restoreLinkedUpdateLocked(name, source, restoreProfile)) ?? busy
+    } catch (error) {
+      return { ok: false, detail: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  function restoreLinkedUpdateLocked(
+    name: string,
+    source: Extract<UpdateRollbackSource, { kind: 'linked-checkout' }>,
+    restoreProfile: boolean,
+  ): { ok: boolean; detail: string | null } {
+    const current = captureUpdateManifest()
+    if (!current.ok) return { ok: false, detail: current.detail }
+    const before = source.manifestBefore
+    const previous = before.dependencies[name]
+    const installed = current.snapshot.dependencies[name]
+    const release = isGitHubReleaseTarballSpec(source.target)
+    const installedReplacement = installed === source.target
+    if (installed !== previous && (!restoreProfile || !installedReplacement)) {
+      return { ok: false, detail: 'the installed source cannot be attributed to this switch' }
+    }
+    const lockNow = restoreProfile ? captureProfileLockfile() : null
+    const lockBefore = source.lockfileBefore
+    if (lockNow !== null) {
+      if (!lockBefore.ok) return { ok: false, detail: lockBefore.detail }
+      if (!lockNow.ok) return { ok: false, detail: lockNow.detail }
+      const dependenciesMatch = isDeepStrictEqual(entriesExcept(before.dependencies, name), entriesExcept(current.snapshot.dependencies, name))
+      const bundleRowsMatch = isDeepStrictEqual(bundleRowsExcept(before, name), bundleRowsExcept(current.snapshot, name))
+      const lockedDependenciesMatch = isDeepStrictEqual(
+        entriesExcept(capturedDependencies(lockBefore.snapshot), name),
+        entriesExcept(capturedDependencies(lockNow.snapshot), name),
+      )
+      if (!dependenciesMatch || !bundleRowsMatch || !lockedDependenciesMatch) {
+        return { ok: false, detail: 'other profile dependencies or bundle rows changed during the switch' }
+      }
+    }
+    // pnpm can materialize a release and write its exact URL to the lockfile
+    // before it changes package.json. Require new evidence for this importer
+    // before moving an occupied package slot with the original declaration.
+    const landedRelease = release && lockNow?.ok === true && lockBefore.ok
+      && !lockRecordsRelease(lockBefore.snapshot, name, source.target)
+      && lockRecordsRelease(lockNow.snapshot, name, source.target)
+    restoreCheckoutLink(source.link, restoreProfile && (installedReplacement || landedRelease), () => {
+      verifyRestoredCheckout(name)
+      if (!restoreProfile) return
+      try {
+        restoreProfileManifest(config.profile, before, activeProfileDir)
+        const restored = captureUpdateManifest()
+        if (!restored.ok || restored.snapshot.dependencies[name] !== previous) throw new Error('could not restore the local dependency declaration')
+        if (lockBefore.ok) {
+          const locked = restoreProfileLockfile(lockBefore.snapshot)
+          if (!locked.ok) throw new Error(locked.detail ?? 'could not restore the previous lockfile')
+        }
+      } catch (error) {
+        restoreProfileManifest(config.profile, current.snapshot, activeProfileDir)
+        if (lockNow?.ok) restoreProfileLockfile(lockNow.snapshot)
+        throw error
+      }
+    })
+    return { ok: true, detail: null }
+  }
+
   async function executeUpdateRollback(
     name: string,
     manifestBefore: ProfileManifestSnapshot,
@@ -2027,6 +2534,7 @@ export function mountMarketRoutes(
     if (source.kind === 'git') {
       return rollbackGitBuild(name, manifestBefore, source.target, source.beforeCommit, source.lockfileBefore, source.keepRepairedLock, preserveProfilePolicy)
     }
+    if (source.kind === 'linked-checkout') return restoreLinkedUpdate(name, source, true)
     return rollbackUpdateBuild(name, manifestBefore, true, preserveProfilePolicy)
   }
 
@@ -2248,7 +2756,7 @@ export function mountMarketRoutes(
     } catch {
       return null
     }
-    return `目录条目指向的子目录在仓库里已不存在（${repo!} 的 ${subpath!}），多半是作者改名或移动了它——这不是你的环境的问题。请到 crate 反馈这条收录已失效。 / This catalog entry points at a subdirectory that no longer exists in the repository (${subpath!} in ${repo!}); the author most likely renamed or moved it. Nothing is wrong with your setup — please report the stale entry to crate.`
+    return `目录条目指向的子目录在仓库里已不存在（${repo!} 的 ${subpath!}），多半是作者改名或移动了它——这不是你的环境的问题。请到 awesome-dsh-plugin 反馈这条收录已失效。 / This catalog entry points at a subdirectory that no longer exists in the repository (${subpath!} in ${repo!}); the author most likely renamed or moved it. Nothing is wrong with your setup — please report the stale entry to awesome-dsh-plugin.`
   }
 
   async function restoreBackup(value: unknown): Promise<{ files: number; errors: { name: string; error: string }[]; unportable?: Array<{ name: string; spec: string }>; pinned?: Array<{ name: string; from: string; to: string }>; bootErrors?: string[] }> {
@@ -2701,6 +3209,7 @@ export function mountMarketRoutes(
     profileKey: createHash('sha256').update(activeProfileDir).digest('hex'),
     enabled: marketState.backgroundUpdateChecks === true,
     intervalHours: marketState.backgroundUpdateIntervalHours,
+    overlay: updates => applyProfileBlockers(updates, activeProfileDir),
     inventory: () => {
       const installed = readInstalled(config.profile, activeProfileDir)
       const commits = readLockCommits(config.profile, activeProfileDir)
@@ -3364,7 +3873,7 @@ export function mountMarketRoutes(
           response.writeHead(200, {
             'cache-control': 'no-store',
             'content-type': 'application/json; charset=utf-8',
-            'content-disposition': `attachment; filename="dsh-crate-backup-${timestamp}.json"`,
+            'content-disposition': `attachment; filename="dsh-dsh-crate-backup-${timestamp}.json"`,
           })
           response.end(backup)
         } catch (error) {
@@ -4320,7 +4829,7 @@ export function mountMarketRoutes(
             const body = (await readJsonBody(request)) as { name?: unknown; enabled?: unknown }
             const name = typeof body.name === 'string' ? body.name : ''
             const enabled = body.enabled === true
-            if (name === 'dsh-crate') {
+            if (name === 'dsh-crate' || name === 'dsh-crate') {
               sendJson(response, 400, { error: 'the market cannot be disabled from its own page; use the dsh CLI' })
               return
             }
@@ -4366,21 +4875,19 @@ export function mountMarketRoutes(
             // Theme exclusivity stays a Themes-page concern: enabling a theme
             // deactivates the previously active one, so only the last-enabled
             // theme is live (same semantics as use-skin).
-            ? await switchPluginLayers(name, enabled, async () => {
-              const { ok, reason } = await themes.activateTheme(name)
+            ? await switchPluginLayers(name, enabled, async (keepOff) => {
+              const { ok, reason } = await themes.activateTheme(name, keepOff)
               themeFailure = reason
               return { ok, reason: reason ?? (ok ? undefined : 'theme activation failed — restart required / 主题启用失败，需要重启') }
             })
             : await switchPluginLayers(name, enabled)
           const { ok, reason } = layers
-          const { patchRows, userRows, patchWrite, carrierRows, isCarrier, bundleSwitch } = layers
+          const { patchRows, patchWrite, carrierRows, isCarrier, bundleSwitch } = layers
           // Activation reads the post-write truth: the switch state OR the
           // patch layer, so a disabled plugin never reports "restart to
           // apply".
-          const patchNow = readUserPatchState(userPatchPath)
-          // Read from userRows, like the listing (#876): a disabled opt-in row is
-          // the bundle's own default and does not make the package off.
-          const offNow = disabled.has(name) || userRows.some(id => patchNow.disables.includes(id))
+          const patchNow = readUserPatchState(userPatchPath, id => composedRowName(host, id))
+          const offNow = disabled.has(name) || packagePatchFlags(host, activeProfileDir, [name], patchNow).disabled.includes(name)
           // When the live composition does not match the requested state
           // (enable failed to hot-mount / disable left the fiber up), the
           // change lands on the next boot via the patch layer + state.json —
@@ -4401,15 +4908,17 @@ export function mountMarketRoutes(
             verifyActivation(config.profile, name, liveNow, activeProfileDir, offNow, undefined, loaderEntryObserved(name)),
             replacedWhileLive.has(name),
           )
-          const reported = themeFailure === undefined
-            ? observed
-            : { ...observed, state: 'failed' as const, hot: false, reasons: [themeFailure] }
-          const restart = !(enabled && reported.state === 'failed')
-            && (isCarrier || staleModule || (enabled ? !liveAfter : liveAfter))
+          const reported = themeFailure !== undefined
+            ? { ...observed, state: 'failed' as const, hot: false, reasons: [themeFailure] }
+            : layers.replayPending === true && observed.state === 'live'
+              ? { ...observed, state: 'restart' as const, hot: false, reasons: reason === undefined ? observed.reasons : [reason] }
+              : observed
+          const restart = !layers.unchanged && !(enabled && reported.state === 'failed')
+            && (isCarrier || staleModule || layers.replayPending === true || (enabled ? !liveAfter : liveAfter))
           // A client-part plugin's UI is in the page already — toggling it
           // needs a browser refresh to show the change (same signal the
           // install flow uses for the hot banner).
-          const refresh = packageHasClientPart(activeProfileDir, name)
+          const refresh = !layers.unchanged && packageHasClientPart(activeProfileDir, name)
             sendJson(response, ok ? 200 : 502, {
               ok,
               name,
@@ -4507,6 +5016,8 @@ export function mountMarketRoutes(
               }
               if (favorites.length >= MAX_FAVORITES) {
                 sendJson(response, 400, {
+                  code: 'FAVORITES_LIMIT_REACHED',
+                  limit: MAX_FAVORITES,
                   error: `favorites limit reached (${String(MAX_FAVORITES)}) / 收藏已达上限（${String(MAX_FAVORITES)}）`,
                 })
                 return
@@ -4723,69 +5234,93 @@ export function mountMarketRoutes(
             sendJson(response, 400, { ok: false, error: 'unknown group action' })
             return
           }
-          const installed = new Set(Object.keys(readInstalled(config.profile, activeProfileDir)))
-          // Theme members follow the global one-active-theme rule: a group
-          // holds at most one, and enabling one deactivates every other.
-          const themeNames = await themes.installedThemeNames()
-          let ok = true
-          let error: string | undefined
-          let restartMembers: string[] = []
-          let refreshMembers: string[] = []
-          if (action === 'toggle') {
-            const name = typeof body.name === 'string' ? body.name : ''
-            const enabled = body.enabled === true
-            if (groups[name] === undefined) {
-              sendJson(response, 400, { ok: false, error: 'group not found / 分组不存在' })
-              return
-            }
-            pendingRollbacks.clear()
-            // Batch toggle: on = every installed member enabled, off = every
-            // member disabled. Each member keeps its own persisted flag, so
-            // later individual toggles still work (the group switch itself is
-            // derived state and never stored).
-            const failures: string[] = []
-            for (const member of groups[name]) {
-              if (!installed.has(member)) continue
-              if (isNonToggleableLibrary(member)) continue
-              let result: { ok: boolean; reason?: string }
-              if (enabled && themeNames.has(member)) {
-                result = await themes.activateTheme(member)
-              } else {
-                // The same two durable layers the single switch writes (#696):
-                // which control flipped a plugin must not change what is on disk.
-                result = await switchPluginLayers(member, enabled)
+          const applyAction = async () => {
+            const installed = new Set(Object.keys(readInstalled(config.profile, activeProfileDir)))
+            // Theme members follow the global one-active-theme rule: a group
+            // holds at most one, and enabling one deactivates every other.
+            const themeNames = await themes.installedThemeNames()
+            let ok = true
+            let error: string | undefined
+            let appliedSome = false
+            let restartMembers: string[] = []
+            let refreshMembers: string[] = []
+            if (action === 'toggle') {
+              const name = typeof body.name === 'string' ? body.name : ''
+              const enabled = body.enabled === true
+              if (groups[name] === undefined) {
+                sendJson(response, 400, { ok: false, error: 'group not found / 分组不存在' })
+                return
               }
-              if (!result.ok) failures.push(member)
-              // Same live-mismatch signal as the single toggle: a member
-              // whose fiber did not follow the switch needs a boot.
-              const liveAfter = liveNames().has(member)
-              if ((enabled && !liveAfter) || (!enabled && liveAfter)) restartMembers.push(member)
-              // Client-part members need a page refresh to show the change.
-              if (packageHasClientPart(activeProfileDir, member)) refreshMembers.push(member)
+              pendingRollbacks.clear()
+              // Batch toggle: on = every installed member enabled, off = every
+              // member disabled. Each member keeps its own persisted flag, so
+              // later individual toggles still work (the group switch itself is
+              // derived state and never stored).
+              const failures: string[] = []
+              let failureReason: string | undefined
+              const replayDeadline = Date.now() + (config.hostReplayWaitMs ?? PROFILE_HMR_REPLAY_WAIT_MS)
+              for (const member of groups[name]) {
+                if (!installed.has(member)) continue
+                if (isNonToggleableLibrary(member)) continue
+                let result: LayerSwitch
+                if (enabled && themeNames.has(member)) {
+                  result = await switchPluginLayers(member, enabled, keepOff => themes.activateTheme(member, keepOff), replayDeadline)
+                } else {
+                  // The same two durable layers the single switch writes (#696):
+                  // which control flipped a plugin must not change what is on disk.
+                  result = await switchPluginLayers(member, enabled, undefined, replayDeadline)
+                }
+                if (!result.ok) {
+                  failures.push(member)
+                  failureReason ??= result.reason
+                  continue
+                }
+                if (result.unchanged) continue
+                appliedSome = true
+                // Same live-mismatch signal as the single toggle: a member
+                // whose fiber did not follow the switch needs a boot.
+                const liveAfter = liveNames().has(member)
+                if (result.replayPending === true || (enabled ? !liveAfter : liveAfter)) restartMembers.push(member)
+                // Client-part members need a page refresh to show the change.
+                if (packageHasClientPart(activeProfileDir, member)) refreshMembers.push(member)
+              }
+              ok = failures.length === 0
+              if (!ok) {
+                const names = failures.join(', ')
+                const [zh, en] = failureReason?.split(' / ', 2) ?? []
+                error = '无法' + (enabled ? '启用 ' : '停用 ') + names + '。' + (zh ?? '检查插件设置后重试。')
+                  + ' / Could not ' + (enabled ? 'enable ' : 'disable ') + names + '. ' + (en ?? 'Check the plugin settings and retry.')
+              }
+            } else {
+              const state = { groups, groupOrder }
+              const result = action === 'create' ? createGroup(state, body.name)
+                : action === 'rename' ? renameGroup(state, body.name, body.newName)
+                : action === 'delete' ? deleteGroup(state, body.name)
+                : setGroupMembers(state, body.name, body.members, installed, themeNames)
+              ok = result.ok
+              error = result.error
             }
-            ok = failures.length === 0
-            if (!ok) error = `failed to ${enabled ? 'enable' : 'disable'}: ${failures.join(', ')}`
-          } else {
-            const state = { groups, groupOrder }
-            const result = action === 'create' ? createGroup(state, body.name)
-              : action === 'rename' ? renameGroup(state, body.name, body.newName)
-              : action === 'delete' ? deleteGroup(state, body.name)
-              : setGroupMembers(state, body.name, body.members, installed, themeNames)
-            ok = result.ok
-            error = result.error
+            if (ok && action !== 'toggle') writeMarketState(activeProfileDir, { disabled, groups, groupOrder })
+            logEvent(ok ? 'info' : 'warn', 'groups',
+              `${action}${typeof body.name === 'string' ? ' ' + body.name : ''}${ok ? '' : ` — ${error ?? ''}`}`)
+            sendJson(response, ok ? 200 : 400, {
+              ok,
+              error,
+              ...(!ok && appliedSome ? { partial: true } : {}),
+              groups,
+              groupOrder,
+              disabled: [...disabled],
+              restartMembers,
+              refreshMembers,
+            })
           }
-          if (ok) writeMarketState(activeProfileDir, { disabled, groups, groupOrder })
-          logEvent(ok ? 'info' : 'warn', 'groups',
-            `${action}${typeof body.name === 'string' ? ' ' + body.name : ''}${ok ? '' : ` — ${error ?? ''}`}`)
-          sendJson(response, ok ? 200 : 400, {
-            ok,
-            error,
-            groups,
-            groupOrder,
-            disabled: [...disabled],
-            restartMembers,
-            refreshMembers,
-          })
+          if (action === 'toggle') {
+            // Hold the lane before reading state or awaiting theme discovery:
+            // an install rollback must not overwrite a concurrent group switch (#1228).
+            await withMutationLock(response, 'write', applyAction)
+          } else {
+            await applyAction()
+          }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           logEvent('error', 'groups', `route error: ${message}`)
@@ -4842,6 +5377,8 @@ export function mountMarketRoutes(
           drainActive: drainCoordinator.hasActive(),
           drainOperations: drainCoordinator.list(),
           drainHistory: drainJournal.recent(10),
+          startupRepair: config.startupRepair?.(),
+          checkoutRecovery,
           pnpm: await commands.probePnpm(),
           boot: BOOT_ID,
           agentGuardAvailable: agentsGuardAvailable(),
@@ -4888,7 +5425,7 @@ export function mountMarketRoutes(
           // Same door, one notch wider for the desktop proxy (#903): the
           // card hides a remove button that could only ever answer 403.
           selfUninstallReachable: selfUninstallReachableFrom(request),
-          selfManaged: installed['dsh-crate'] !== undefined,
+          selfManaged: installed['dsh-crate'] !== undefined || installed['dsh-crate'] !== undefined,
           // Whether the host took the market's settings namespace (#677).
           // `unsupported-by-host` is 0.1.7 and newer, where settings come from
           // a plugin's Config schema and no third-party namespace is served —
@@ -5007,10 +5544,10 @@ export function mountMarketRoutes(
             return
           }
           // The version the Update button installs, when the client knows it
-          // (#1193); anything that is not a plain stable version is ignored.
+          // (#1193); only exact stable versions or Git SHAs set a boundary.
           const target = new URL(request.url ?? '/', 'http://localhost').searchParams.get('target')
           sendJson(response, 200, await updateNotesFor(config.profile, activeProfileDir, name,
-            target !== null && isStableReleaseVersion(target) ? target : undefined))
+            target !== null && (isStableReleaseVersion(target) || isCommitId(target)) ? target : undefined))
         } catch (error) {
           sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
         }
@@ -5381,6 +5918,7 @@ export function mountMarketRoutes(
           sendJson(response, 403, { error: 'untrusted origin' })
           return
         }
+        let switchedCheckout: string | undefined
         try {
           const body = (await readJsonBody(request)) as {
             name?: unknown
@@ -5443,6 +5981,7 @@ export function mountMarketRoutes(
               sendJson(response, 400, { error: '市场的本地开发链接不会被线上版本替换。 / The market\'s local development link is never replaced by an online release.' })
               return
             }
+            const originalLink = restore && spec.toLowerCase().startsWith('link:') ? spec : null
             if (isLocalSpec(spec)) {
               if (!restore) {
                 sendJson(response, 400, { error: 'locally linked plugins update from their checkout' })
@@ -5986,7 +6525,7 @@ export function mountMarketRoutes(
             const lockfileCapture = captureProfileLockfile()
             const previousVersionZh = beforeVersion === null ? '更新前版本未知' : `更新前版本为 v${beforeVersion}`
             const previousVersionEn = beforeVersion === null ? 'the previous version is unknown' : `the previous version was v${beforeVersion}`
-            const rollbackPlan: UpdateRollbackPlan = restore
+            let rollbackPlan: UpdateRollbackPlan = restore
               ? { available: true, source: { kind: 'manifest' } }
               : !lockfileCapture.ok
                 ? { available: false, detail: lockfileCapture.detail }
@@ -6069,6 +6608,25 @@ export function mountMarketRoutes(
                           detail: `更新前的来源 ${spec} 不是受支持的精确回滚目标（${previousVersionZh}），因此自动回滚不可用；需要时请从可信来源手工重新安装先前版本。 / The previous source ${spec} is not a supported exact rollback target (${previousVersionEn}), so automatic rollback is unavailable. Reinstall the prior version manually from a trusted source if needed.`,
                           lockfileBefore: lockfileCapture.snapshot,
                         }
+            // Another release already in this profile is still inside the safety
+            // wait (#1252). pnpm checks the whole lockfile before any change, so
+            // this update would fail exactly as the last one did — and write
+            // and restore the profile on the way. Where a one-shot bypass is
+            // available the run can still succeed, so only the hosts without
+            // one (the official Desktop, mature-only updates) stop here.
+            if (!marketFlags || enforceMatureReleaseAge) {
+              const blocker = headlineBlocker(activeReleaseBlockers(activeProfileDir))
+              if (blocker !== null) {
+                logEvent('info', 'update-held', `${name}: not started — ${blocker.name}@${blocker.version} in this profile is still inside the safety wait${blocker.readyAt === null ? ' (end unknown)' : ` until ${blocker.readyAt}`} (#1252)`)
+                sendJson(response, 409, {
+                  ok: false,
+                  failureCode: 'PROFILE_RELEASE_BLOCKED',
+                  profileBlocked: { name: blocker.name, version: blocker.version, readyAt: blocker.readyAt },
+                  error: releaseBlockedMessage(blocker),
+                })
+                return
+              }
+            }
             // The desktop host names the package a run installed by diffing the
             // profile manifest before and after pnpm. A floating re-resolve is
             // sent as the bare remote URL, which pnpm writes back byte-for-byte
@@ -6142,8 +6700,84 @@ export function mountMarketRoutes(
             // reject the operation because another lockfile entry is young or
             // the registry changes. Never retry this update with an age bypass.
             if (!assertDrainMutation(request, response)) return
-            const result = await (enforceMatureReleaseAge ? runMaturePluginUpdate : runPlugin)(config.profile, addArgs)
+            let checkoutSource: Extract<UpdateRollbackSource, { kind: 'linked-checkout' }> | null = null
+            if (originalLink !== null) {
+              if (commands.busy?.() === true || commands.packageWritesSettled?.() === false) {
+                sendJson(response, 409, { busy: true, error: 'another plugin operation is running' })
+                return
+              }
+              try {
+                const prepared = withIdleProfile(activeProfileDir, () => {
+                  const current = captureUpdateManifest()
+                  if (!current.ok || current.snapshot.dependencies[name] !== originalLink) {
+                    throw new Error('the local dependency changed. Refresh the market before switching')
+                  }
+                  const lockfileBefore = captureProfileLockfile()
+                  const link = detachCheckoutLink(activeProfileDir, name, originalLink, saved => {
+                    checkoutLinks.record({ name, spec: originalLink, rawTarget: saved.rawTarget })
+                  })
+                  return { link, manifestBefore: current.snapshot, lockfileBefore }
+                })
+                if (prepared === null) {
+                  sendJson(response, 409, { busy: true, error: 'another plugin operation is running' })
+                  return
+                }
+                if (prepared.link !== null) {
+                  checkoutSource = { ...prepared, kind: 'linked-checkout', link: prepared.link, target }
+                  switchedCheckout = name
+                  rollbackPlan = { available: true, source: checkoutSource }
+                }
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error)
+                sendJson(response, 409, {
+                  targetChanged: true,
+                  error: `无法安全断开本地插件链接（${detail}）。请检查链接后重试。 / Could not safely disconnect the local plugin link (${detail}). Check the link and try again.`,
+                })
+                return
+              }
+            }
+            const detachedCheckout = checkoutSource?.link
+            const runCheckoutSwitch = detachedCheckout === undefined ? undefined : async (profile: string, args: string[]) => {
+              if (args[0] !== 'store') {
+                const prepared = withIdleProfile(activeProfileDir, () => {
+                  const current = captureUpdateManifest()
+                  const dependency = current.ok ? current.snapshot.dependencies[name] : undefined
+                  if (!current.ok || (dependency !== originalLink && dependency !== target)) {
+                    throw new Error('the profile dependency changed after the switch started')
+                  }
+                  keepCheckoutDetached(detachedCheckout)
+                  return true
+                })
+                if (prepared === null) throw new Error('another plugin operation is running')
+              }
+              return commands.runPlugin(profile, args)
+            }
+            let result: InstallResult
+            try {
+              result = enforceMatureReleaseAge
+                ? await runMaturePluginUpdate(config.profile, addArgs)
+                : await runPlugin(config.profile, addArgs, false, runCheckoutSwitch)
+            } catch (error) {
+              if (checkoutSource !== null && commands.busy?.() !== true) {
+                const attached = restoreLinkedUpdate(name, checkoutSource, false)
+                if (!attached.ok) logEvent('warn', 'update-rollback', `${name}: could not reconnect the checkout — ${attached.detail}`)
+              }
+              throw error
+            }
             drainPhaseOf(request)?.('verifying')
+            if (checkoutSource !== null && result.repairOnRestart === true) {
+              // A direct add can time out without a remove/reinstall journal
+              // (#928). Wait for the manager before reattaching a checkout
+              // pnpm might still replace.
+              logEvent('warn', 'update', `${name}: the desktop manager did not settle during the source switch. The checkout is retained.`)
+              sendJson(response, 502, {
+                ok: false,
+                timedOut: result.timedOut,
+                failureCode: result.refusalCode,
+                error: '宿主尚未完成切换，源码仍在。等插件管理器结束后检查当前安装来源。如果 profile 仍指向本地但链接缺失，请完全退出 DSH，再恢复原链接。 / The plugin manager has not settled the switch. Your checkout is intact. Check the installed source once it finishes. If the profile still declares the local checkout and its link is missing, quit DSH before reconnecting the link.',
+              })
+              return
+            }
             const cancelled = result.cancelled
             // The pin above is the market's own write, so it is undone whenever
             // pnpm did not replace it. Measured on pnpm 11.7.0 and 12.4.1, a
@@ -6174,6 +6808,17 @@ export function mountMarketRoutes(
             let rollbackOk = true
             let rollbackDetail: string | null = null
             let hardFailureRollbackError: string | null = null
+            if (checkoutSource !== null
+              && (cancelled || result.busy === true || result.wroteNothing === true
+                || pnpmNeverStarted(result) || pnpmRefusedYoungRelease(result))) {
+              const restored = restoreLinkedUpdate(name, checkoutSource, cancelled)
+              rollbackOk = restored.ok
+              rollbackDetail = restored.detail
+              if (!restored.ok) {
+                hardFailureRollbackError = `${name} 的本地链接未能恢复（${restored.detail}）。请检查 profile 的安装记录与链接。 / The local link for ${name} could not be restored (${restored.detail}). Check the profile dependency and link.`
+                logEvent('warn', 'update-rollback', hardFailureRollbackError)
+              }
+            }
             // Set when this failure made the market drop the plugin's own
             // declaration (#663). The client needs it in the ANSWER as well as
             // in state.json: the notice has to appear on the failure the user
@@ -6311,7 +6956,7 @@ export function mountMarketRoutes(
                 spec,
                 explicitDir: activeProfileDir,
               }))) {
-              if (pnpmBlockedByOpenFiles(result)) {
+              if (checkoutSource === null && pnpmBlockedByOpenFiles(result)) {
                 const kept = keepLockedBuild()
                 rollbackOk = kept.ok
                 rollbackDetail = kept.detail
@@ -6340,7 +6985,9 @@ export function mountMarketRoutes(
                 if (rollback.ok) {
                   logEvent('warn', 'update', `${name}: failed update command; previous build restored and verified`)
                 } else {
-                  hardFailureRollbackError = `${name} 更新失败，且更新前的构建未能验证恢复（${rollback.detail ?? 'unknown'}）；请先检查该 profile，再重新启动。 / ${name} update failed and restoration of the previous build could not be verified (${rollback.detail ?? 'unknown'}); inspect this profile before restarting.`
+                  hardFailureRollbackError = checkoutSource !== null
+                    ? `${name} 换用线上版本失败，源码仍在，但无法恢复 profile 中的链接（${rollback.detail ?? 'unknown'}）。请完全退出 DSH 后检查本地插件链接。 / The switch to the online release failed for ${name}. The checkout is intact, but its profile link could not be restored (${rollback.detail ?? 'unknown'}). Quit DSH before inspecting that link.`
+                    : `${name} 更新失败，且更新前的构建未能验证恢复（${rollback.detail ?? 'unknown'}）；请先检查该 profile，再重新启动。 / ${name} update failed and restoration of the previous build could not be verified (${rollback.detail ?? 'unknown'}); inspect this profile before restarting.`
                   logEvent('error', 'update-rollback', `${name}: failed update command and restoration of the previous build could not be verified — ${rollback.detail ?? 'unknown'}`)
                 }
               }
@@ -6356,7 +7003,7 @@ export function mountMarketRoutes(
             // ran. The question it asks does not depend on how the run ended —
             // can this package still load? — so ask it here too. A cancel that
             // left the previous build intact (the common case) is untouched.
-            if (cancelled && !hasLoadableEntry(activeProfileDir, name)) {
+            if (checkoutSource === null && cancelled && !hasLoadableEntry(activeProfileDir, name)) {
               const kept = keepLockedBuild()
               if (kept.missingEntry) {
                 dropBrokenDeclaration('the update was cancelled while pnpm was replacing the directory, and the previous build is incomplete', 'incomplete-build-cancelled')
@@ -6386,7 +7033,14 @@ export function mountMarketRoutes(
                 // the checkout already sat on the same version as latest.
                 const afterSpec = readInstalled(config.profile, activeProfileDir)[name]
                 const stillLocal = afterSpec !== undefined && isLocalSpec(afterSpec)
-                if (stillLocal) ok = false
+                if (stillLocal) {
+                  ok = false
+                  if (checkoutSource !== null) {
+                    const restored = await rollbackAttemptBuild()
+                    rollbackOk = restored.ok
+                    rollbackDetail = restored.detail
+                  }
+                }
               } else {
                 stale = isStaleUpdate({
                   isGit,
@@ -6641,6 +7295,10 @@ export function mountMarketRoutes(
                 : `${name} 的上游已把包改名为 ${renamedTo}，且未能验证恢复原版本（${rollbackDetail ?? 'unknown'}）。 / ${name} was renamed upstream to ${renamedTo}, and restoration of the previous build could not be verified (${rollbackDetail ?? 'unknown'}).`
 
             const cancelDiff = cancelled ? changedSince(beforeInstalled) : null
+            if (cancelDiff !== null && checkoutSource !== null && !rollbackOk) {
+              if (!cancelDiff.changed.includes(name)) cancelDiff.changed.push(name)
+              cancelDiff.partial = true
+            }
             // Build-script blocks hit updates too (#69): a leftover invalid
             // allowBuilds entry (pnpm's placeholder bug, #56) or a newly
             // build-required dep fails the add with ERR_PNPM_IGNORED_BUILDS.
@@ -6692,7 +7350,7 @@ export function mountMarketRoutes(
             // Restore the row, scoped to exactly that refusal and to this
             // operation's own target: the read-only stance in #720/#696
             // still holds for every other way a row can disappear.
-            if (!ok && !cancelled && result.refusalCode === 'bundle-in-use') {
+            if (!ok && !cancelled && result.refusalCode === 'bundle-in-use' && (checkoutSource === null || rollbackOk)) {
               const targetRowDropped = bundlesDroppedFromProfile(
                 manifestBefore, config.profile, activeProfileDir,
                 new Set(removedDeclaration === null ? [] : [removedDeclaration.name]),
@@ -6716,7 +7374,7 @@ export function mountMarketRoutes(
             // disk — putting the row back restores what the user had before
             // the operation. A successful update keeps the read-only stance
             // (#720/#696), where a missing row may be a deliberate switch-off.
-            if (!ok && !cancelled) {
+            if (!ok && !cancelled && checkoutSource === null) {
               const lostRows = bundlesDroppedFromProfile(
                 manifestBefore, config.profile, activeProfileDir,
                 new Set(removedDeclaration === null ? [] : [removedDeclaration.name]),
@@ -6736,6 +7394,11 @@ export function mountMarketRoutes(
             if (ok) recordUpdated(activeProfileDir, [name])
             logEvent(ok || cancelled ? 'info' : 'error', 'update',
               `${name} -> ${target} exit=${String(result.exitCode)}${result.timedOut ? ' TIMEOUT' : ''}${cancelled ? ' CANCELLED' : ''}${stale ? ` STALE(${staleReason ?? 'unknown'})` : ''}${ok || cancelled ? '' : ` err=${failureDetail(result)}`}`)
+            // The run this update just made is what taught the market which
+            // release is in the way (#1252): say it by name, with the time.
+            const learnedBlocker = !ok && !cancelled && pnpmRefusedYoungRelease(result)
+              ? headlineBlocker(activeReleaseBlockers(activeProfileDir))
+              : null
             // A user-cancelled run is a quiet outcome, not an error.
             sendJson(response, ok || cancelled ? 200 : result.busy === true ? 409 : 502, {
               ok,
@@ -6755,7 +7418,8 @@ export function mountMarketRoutes(
               // The host's own refusal code when it stopped before pnpm
               // (#909): `market-self-update` tells a client that the button
               // cannot work on this host, not that the update was broken.
-              failureCode: versionFailureCode ?? result.refusalCode ?? undefined,
+              failureCode: versionFailureCode ?? (result.needsRestart === true ? 'RESTART_REQUIRED' : undefined) ?? result.refusalCode ?? (learnedBlocker === null ? undefined : 'PROFILE_RELEASE_BLOCKED'),
+              ...(learnedBlocker === null ? {} : { profileBlocked: { name: learnedBlocker.name, version: learnedBlocker.version, readyAt: learnedBlocker.readyAt } }),
               renamedTo: renamedTo ?? undefined,
               removedDeclaration: removedDeclaration ?? undefined,
               // #1047: no version could be pinned, so this is the one pnpm
@@ -6794,6 +7458,8 @@ export function mountMarketRoutes(
           if (!inProbe()) host.logger?.warn(`[dsh-crate] update failed: ${message}`)
           logEvent('error', 'update', `route error: ${message}`)
           sendJson(response, 500, { error: message })
+        } finally {
+          if (switchedCheckout !== undefined) startCheckoutRepair(switchedCheckout)
         }
       },
     })),
@@ -7188,7 +7854,7 @@ export function mountMarketRoutes(
               return
             }
             const installed = readInstalled(config.profile, activeProfileDir)
-            const selfName = installed['dsh-crate'] !== undefined ? 'dsh-crate' : undefined
+            const selfName = ['dsh-crate', 'dsh-crate'].find(candidate => installed[candidate] !== undefined)
             if (selfName === undefined) {
               sendJson(response, 400, { error: 'the market is not an installed dependency of this profile' })
               return
@@ -7565,7 +8231,7 @@ export function mountMarketRoutes(
             // has a concrete thing to go fix, so an override would only help
             // them break their next boot.
             const force = body.force === true
-            if (name === 'dsh-crate') {
+            if (name === 'dsh-crate' || name === 'dsh-crate') {
               sendJson(response, 400, { error: 'the market cannot uninstall itself; use the dsh CLI' })
               return
             }
@@ -8598,8 +9264,11 @@ export function mountMarketRoutes(
     })),
   ]
 
+  startCheckoutRepair()
   return async () => {
     disposed = true
+    checkoutRepairRound = undefined
+    if (checkoutRepairTimer !== undefined) clearTimeout(checkoutRepairTimer)
     updateNotifications.dispose()
     // Release Agent maintenance holds before the routes disappear. This is the
     // disposer half of the single-finally + disposer guarantee (#411): an

@@ -178,6 +178,41 @@ export declare function packagePatchFlags(host: PatchHost, profileDirectory: str
     disabled: string[];
     forced: string[];
 };
+interface ComponentSwitchPatch {
+    before: string;
+    resumed: string;
+    rows: ReadonlyMap<string, string | null>;
+    suspended: boolean;
+    customized: boolean;
+    keepOff: ReadonlySet<string>;
+    ownOff: ReadonlySet<string>;
+    legacyAllOff: boolean;
+}
+/**
+ * View the user's component choices without the temporary package-wide
+ * disable overrides. A named override the official page changed to false
+ * is a new choice, so only the still-disabled market overrides are removed.
+ */
+export declare function readComponentSwitchPatch(patchPath: string, packageName: string, rows: ReadonlyMap<string, string | null>, bundleDecides: ReadonlySet<string>): ComponentSwitchPatch | null;
+interface ComponentPatchChange {
+    before: string | null;
+    after: string;
+}
+type PatchWrite = {
+    ok: boolean;
+    reason: string | null;
+};
+/** Roll back only an unchanged file this switch wrote. */
+export declare function rollbackComponentSwitchPatch(patchPath: string, change: ComponentPatchChange): PatchWrite;
+/** Only the switch's own overrides are written or removed. Keep the user's
+ * component flags and accompanying configuration in the file verbatim. */
+export declare function writeComponentSwitchPatch(patchPath: string, packageName: string, patch: ComponentSwitchPatch, enabled: boolean): Promise<PatchWrite & {
+    change?: ComponentPatchChange;
+}>;
+/** The OFF transaction calls this while holding the host profile lock. */
+export declare function commitComponentSwitchPatch(patchPath: string, packageName: string, patch: ComponentSwitchPatch, enabled: boolean): PatchWrite & {
+    change?: ComponentPatchChange;
+};
 /**
  * Disable one row: `- id: X` + `disabled: true` (idempotent).
  *
@@ -220,3 +255,4 @@ export declare function removeRowBlocks(patchPath: string, rowIds: readonly stri
     ok: boolean;
     reason: string | null;
 };
+export {};
