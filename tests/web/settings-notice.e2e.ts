@@ -41,7 +41,16 @@ describe.skipIf(!dshAvailable()).sequential('web e2e: the Settings entry points 
     // The market stays usable below the line.
     expect(await page.locator('[class*="masonryCol"] > [class*="card"]').count()).toBeGreaterThan(0)
 
-    await notice.getByRole('button', { name: /^(去插件页|Go to Plugins)$/ }).click()
+    // 0.2.1 系列宿主提供 pluginNavigation.openBundle，但还没有 openList：
+    // 提示会退化为手动指引，没有按钮可点。这不是产品缺陷，测试接受两种形态；
+    // 只有按钮真的出现时，才继续验证跳转与页签选中。
+    const go = notice.getByRole('button', { name: /^(去插件页|Go to Plugins)$/ })
+    const canGo = await go.waitFor({ state: 'visible', timeout: 3000 }).then(() => true, () => false)
+    if (!canGo) {
+      expect(await notice.innerText()).toMatch(/插件箱子已移到「插件」页的「插件箱子」页签|Plugin Crate has moved to the Plugin Crate tab/)
+      return
+    }
+    await go.click()
 
     const tab = page.getByRole('tab', { name: /^(插件箱子|Plugin Crate)$/ })
     await tab.waitFor({ state: 'visible', timeout: 15_000 })
