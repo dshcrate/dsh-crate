@@ -4,8 +4,8 @@
  * pending-restart bookkeeping in window.sessionStorage.
  */
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactElement, type ReactNode, type Ref } from 'react'
-import { SPONSORS } from './sponsors.generated.ts'
 import { createPortal } from 'react-dom'
+import { SHOW_SPONSORS, SPONSORS } from './sponsors.generated.ts'
 import {
   Button,
   DisclosureRow,
@@ -8300,7 +8300,7 @@ export function MarketSection(props: MarketSectionProps) {
               width the tabs and actions leave over, so the mark can never push a
               button onto a second line. When it does not fit it drops out whole. */}
           <span className={surface === 'plugins' ? `${css.grow} ${css.sponsorSlot}` : css.grow}>
-            {surface === 'plugins' && <><span className={css.sponsorWrapFloor} /><SponsorMark lang={lang} t={t} /></>}
+            {SHOW_SPONSORS && surface === 'plugins' && <><span className={css.sponsorWrapFloor} /><SponsorMark lang={lang} t={t} /></>}
           </span>
           {/* The host page already names this tab, so these sit here instead
               of a second title row. Settings and the sidebar keep them in
