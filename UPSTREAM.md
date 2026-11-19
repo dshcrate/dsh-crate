@@ -83,9 +83,13 @@ npm run build:client
 ## 已知坑
 
 - 上游和本地都改过的文件（`locales.ts`、`MarketSection.tsx`、`client.js`）cherry-pick 必冲突，必须逐块手工合并
-- 上游版本号是 `1.73.x`，本地是 `0.4.x`；不要引入上游版本号、tag、包名
+- 上游版本号是 `1.73.x`，本地是 `0.5.x`；不要引入上游版本号、tag、包名
 - 上游的品牌字符串（`dsh-market`、`Plugin Market`、`插件市场`）不能进入 `src/client` 与 `locale`
 - 上游的 registry / catalog 源地址不能覆盖 `src/regions.ts` 里的 `CATALOG_OFFICIAL`
+- 品牌回写必须在**所有合并完成后**统一再跑一遍：合并会把上游新片段带进 `src`/`tests`/`locale`，合并前替换会漏；CSS 里的 `data-dsh-market-*` 属性名是最容易漏的点（2026-11-19 漏了两条吸顶规则）
+- 替换后要修语法：对象键 `{ dsh-crate: … }` 加引号，属性访问 `x.dsh-crate` 改成 `x['dsh-crate']`
+- 构建产物也要查：`client/client.js` 中上游品牌必须为 0，`lib/registry.js` 必须含 `parseCatalog`；再用 `lib/registry.js` 的 `loadRegistry()` 真实加载一次线上目录，确认 `entries` 桥接可用
+- 非保护文件按文件清单 checkout，不要 `git checkout <tag> -- tests` 整目录覆盖，否则会冲掉本地定制测试（品牌防护、滚动、图标、拓扑适配）
 
 ## 同步记录
 
