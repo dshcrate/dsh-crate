@@ -470,8 +470,8 @@
    `--dshm-sticky-bg` for the resting surface, `--dshm-stuck-bg` for the
    surface while `data-dshm-stuck` says the row is on its line (#1237).
    With neither set, both fall back to exactly today's `--dsw-alias-bg-base`. */
-[data-dsh-market-plugins-tab="true"]:not([data-dsh-market-fullscreen="true"]) .head[data-dshm-stuck="true"],
-[data-dsh-market-plugins-tab="true"]:not([data-dsh-market-fullscreen="true"]) .cats[data-dshm-stuck="true"]{
+[data-dsh-crate-plugins-tab="true"]:not([data-dsh-crate-fullscreen="true"]) .head[data-dshm-stuck="true"],
+[data-dsh-crate-plugins-tab="true"]:not([data-dsh-crate-fullscreen="true"]) .cats[data-dshm-stuck="true"]{
   background:var(--dshm-stuck-bg,var(--dshm-sticky-bg,var(--dsw-alias-bg-base,#fff)))
 }
 /* Explicit immersive mode: the normal Settings width remains the default,
