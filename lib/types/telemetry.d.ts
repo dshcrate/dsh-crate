@@ -2,11 +2,13 @@ import { marketFetch } from './net.ts';
 /**
  * The anonymous daily count.
  *
- * One POST per install per UTC day, from the Node side only, carrying exactly
- * five fields (see `Ping`). It is ON by default and off with one switch in
- * the settings card or with `DSH_CRATE_TELEMETRY=0` / `DO_NOT_TRACK=1`.
- * Everything about it is best effort: a failure changes nothing for the user
- * and is never an error.
+ * One POST per install per UTC day, from the Node side only, carrying five
+ * fields (see `Ping`). On a day the user opens the plugin page, a second POST
+ * carries the same five plus `opened: true` — the only thing it adds is that
+ * the page was opened, never what was done there. It is ON by default and off
+ * with one switch in the settings card or with `DSH_CRATE_TELEMETRY=0` /
+ * `DO_NOT_TRACK=1`. Everything about it is best effort: a failure changes
+ * nothing for the user and is never an error.
  */
 export declare const TELEMETRY_URL = "https://dshcrate.com/api/telemetry";
 /** The whole payload. Adding a field here is a privacy change: update SECURITY.md. */
@@ -16,10 +18,13 @@ export interface Ping {
     hv: string | null;
     kind: 'desktop' | 'web';
     region: string;
+    /** Present (and true) only on the day's first open of the plugin page. */
+    opened?: true;
 }
 interface TelemetryState {
     id?: string;
     lastDay?: string;
+    lastOpenDay?: string;
     enabled: boolean;
 }
 export declare function telemetryFile(home?: string): string;
@@ -40,6 +45,8 @@ export interface HeartbeatOptions {
 }
 /** Send today's count if it is due. Never throws. */
 export declare function sendHeartbeat(options: HeartbeatOptions): Promise<'sent' | 'skipped' | 'failed'>;
+/** Note that the plugin page was opened today, if that has not been sent yet. Never throws. */
+export declare function sendOpened(options: HeartbeatOptions): Promise<'sent' | 'skipped' | 'failed'>;
 /** Start the schedule: first check after a short delay, then every ~6 hours. */
 export declare function startHeartbeat(options: HeartbeatOptions, delayMs?: number, everyMs?: number): () => void;
 export {};

@@ -257,7 +257,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			setRegionChinaHint: "中国大陆访问更快。仅改变下载线路，插件来源不变。",
 			setRegionAuto: "已根据网络状况自动选择，可随时切换。",
 			setCount: "匿名使用统计",
-			setCountHint: "默认开启，可随时关闭。每天最多一次匿名计数，不含任何个人信息。只发送：随机安装编号、插件箱子版本、DSH 版本、桌面端或网页端、下载区域。",
+			setCountHint: "默认开启，可随时关闭。每天最多一次匿名计数，不含任何个人信息。只发送：随机安装编号、插件箱子版本、DSH 版本、桌面端或网页端、下载区域，以及当天有没有打开过插件箱子。",
 			setCountOn: "开启",
 			setCountOff: "关闭",
 			setGithubProxy: "GitHub 加速",
@@ -1146,7 +1146,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			setRegionChinaHint: "Faster in mainland China. Changes the download route, not the source.",
 			setRegionAuto: "Selected from a network check. Change it anytime.",
 			setCount: "Anonymous usage count",
-			setCountHint: "On by default; turn it off anytime. At most one anonymous count a day, with no personal information. It sends only: a random install ID, plugin crate version, DSH version, desktop or web, and download region.",
+			setCountHint: "On by default; turn it off anytime. At most one anonymous count a day, with no personal information. It sends only: a random install ID, plugin crate version, DSH version, desktop or web, download region, and whether you opened the plugin crate that day.",
 			setCountOn: "On",
 			setCountOff: "Off",
 			setGithubProxy: "GitHub acceleration",
@@ -2034,7 +2034,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			setRegionChinaHint: "中国本土ではより高速です。ダウンロード経路が変わるだけで、プラグインの入手元は変わりません。",
 			setRegionAuto: "ネットワーク状況から自動で選択済みです。いつでも切り替えできます。",
 			setCount: "匿名の利用カウント",
-			setCountHint: "既定ではオンで、いつでもオフにできます。1日最大1回の匿名カウントで、個人情報は含みません。送るのは、ランダムなインストール ID、プラグインボックスのバージョン、DSH のバージョン、デスクトップかウェブか、ダウンロード地域だけです。",
+			setCountHint: "既定ではオンで、いつでもオフにできます。1日最大1回の匿名カウントで、個人情報は含みません。送るのは、ランダムなインストール ID、プラグインボックスのバージョン、DSH のバージョン、デスクトップかウェブか、ダウンロード地域、その日にプラグインボックスを開いたかどうかだけです。",
 			setCountOn: "オン",
 			setCountOff: "オフ",
 			setGithubProxy: "GitHub 高速化",
@@ -21218,7 +21218,19 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 		* /dsh-crate/* host routes, with install/update/uninstall flows and the
 		* pending-restart bookkeeping in sessionStorage.
 		*/
+		/**
+		* 告诉 Node 侧页面已打开。服务端每天只保留第一次，页面这边也按天去重；
+		* 失败对用户没有任何影响。
+		*/
+		let openedReportedOn = "";
+		function reportOpened() {
+			const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+			if (openedReportedOn === day) return;
+			openedReportedOn = day;
+			fetch(api("/dsh-crate/telemetry/opened"), { method: "POST" }).catch(() => {});
+		}
 		function MarketSection(props) {
+			(0, react.useEffect)(reportOpened, []);
 			const c1 = useMarketState({ props });
 			const c2 = useMarketSync({
 				props,

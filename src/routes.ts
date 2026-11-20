@@ -77,7 +77,7 @@ import { DEFAULT_UPDATE_CHECK_INTERVAL_HOURS, isUpdateCheckIntervalHours } from 
 import { createThemeManager, type LoaderEntry } from './themes.ts'
 import { readJsonBody, refuseUnadmitted, sameOrigin, sendJson } from './http.ts'
 import { resolveDshHome } from './home-paths.ts'
-import { readTelemetryState, setTelemetryEnabled, startHeartbeat } from './telemetry.ts'
+import { readTelemetryState, sendOpened, setTelemetryEnabled, startHeartbeat, type HeartbeatOptions } from './telemetry.ts'
 import { clearWebdavSecret, readWebdavSecret, webdavSecretFor, writeWebdavSecret } from './webdav-secret.ts'
 import { detectedDebugger, detectedSupervisor, restartAllowed, scheduleRestart, servingPort, trustedRestartRequest, trustedDownloadRequest, trustedSelfUninstallRequest, selfUninstallReachableFrom, type RecoveryHandoffConfig, restartReachableFrom } from './restart.ts'
 import type { RecoveryPlugin } from './recovery.ts'
@@ -3364,7 +3364,33 @@ export function mountMarketRoutes(
     })
   }
 
+  const telemetryOptions: HeartbeatOptions = {
+    version: marketVersion(),
+    hostVersion: () => dshHostInfo()?.version ?? null,
+    kind: () => (config.desktopHost === true ? 'desktop' : 'web'),
+    region: () => region,
+  }
+
   const disposers = [
+    // 页面打开：页面每次加载上报一次，服务端每天只保留第一次；立即返回，页面不等网络。
+    registerRoute({
+      kind: 'exact',
+      path: '/dsh-crate/telemetry/opened',
+      handler: async (request, response) => {
+        if (request.method !== 'POST') {
+          response.writeHead(405, { allow: 'POST' })
+          response.end()
+          return
+        }
+        if (!sameOrigin(request)) {
+          sendJson(response, 403, { error: 'untrusted origin' })
+          return
+        }
+        void sendOpened(telemetryOptions)
+        response.writeHead(204)
+        response.end()
+      },
+    }),
     registerRoute({
       kind: 'exact',
       path: '/dsh-crate/telemetry',
@@ -9320,12 +9346,7 @@ export function mountMarketRoutes(
   ]
 
   startCheckoutRepair()
-  const stopHeartbeat = startHeartbeat({
-    version: marketVersion(),
-    hostVersion: () => dshHostInfo()?.version ?? null,
-    kind: () => (config.desktopHost === true ? 'desktop' : 'web'),
-    region: () => region,
-  })
+  const stopHeartbeat = startHeartbeat(telemetryOptions)
   return async () => {
     disposed = true
     stopHeartbeat()

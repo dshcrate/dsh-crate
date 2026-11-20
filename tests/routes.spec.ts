@@ -1528,6 +1528,17 @@ describe('host recovery (#875)', () => {
 })
 
 describe('anonymous usage count route', () => {
+  it('accepts the opened event, and refuses other methods or origins', async () => {
+    const ok = await hit(routes, '/dsh-crate/telemetry/opened', post('/dsh-crate/telemetry/opened', {}))
+    expect(ok.status).toBe(204)
+    const get = await hit(routes, '/dsh-crate/telemetry/opened', { method: 'GET', url: '/dsh-crate/telemetry/opened' })
+    expect(get.status).toBe(405)
+    const cross = await hit(routes, '/dsh-crate/telemetry/opened', {
+      method: 'POST', url: '/dsh-crate/telemetry/opened', origin: 'http://evil.example', host: HOST, body: {},
+    })
+    expect(cross.status).toBe(403)
+  })
+
   it('reads the default, saves the switch, and keeps the rest of the file', async () => {
     expect(jsonBody(await hit(routes, '/dsh-crate/telemetry', { method: 'GET', url: '/dsh-crate/telemetry' }))).toEqual({ enabled: true })
     const file = join(tmp, 'dsh-crate', 'telemetry.json')

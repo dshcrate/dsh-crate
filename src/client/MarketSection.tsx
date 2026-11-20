@@ -4,8 +4,9 @@
  * pending-restart bookkeeping in sessionStorage.
  */
 
-import { useLayoutEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 import css from './Market.module.css'
+import { api } from './market-data.ts'
 import { Diagnostics } from './Diagnostics.tsx'
 import { useMarketState } from './market-state.tsx'
 import { useMarketSync } from './market-sync.ts'
@@ -25,7 +26,20 @@ export { MarketLogo } from './MarketLogo.tsx'
 export { resetHostCompatibilityCache } from './market-state.tsx'
 export type { MarketSectionProps } from './market-types.ts'
 
+/**
+ * 告诉 Node 侧页面已打开。服务端每天只保留第一次，页面这边也按天去重；
+ * 失败对用户没有任何影响。
+ */
+let openedReportedOn = ''
+function reportOpened(): void {
+  const day = new Date().toISOString().slice(0, 10)
+  if (openedReportedOn === day) return
+  openedReportedOn = day
+  void fetch(api('/dsh-crate/telemetry/opened'), { method: 'POST' }).catch(() => {})
+}
+
 export function MarketSection(props: MarketSectionProps) {
+  useEffect(reportOpened, [])
   const c1 = useMarketState({ props })
   const c2 = useMarketSync({ props, ...c1 })
   const c3 = useMarketInstall({ props, ...c1, ...c2 })
