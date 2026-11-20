@@ -20,6 +20,7 @@ import {
 } from './pending-updates.ts'
 import { profileDir, readInstalledVersion } from './profile.ts'
 import { activeRegion, DEFAULT_NPM_REGISTRY, routesFor } from './regions.ts'
+import { clearStartupRepairEntry } from './startup-repair-report.ts'
 
 interface ManagedResult {
   application: string
@@ -697,6 +698,12 @@ export function createOfficialDesktopRuntime(
       ].filter(Boolean).join('\n')
       const message = ok ? '' : result.needsRestart === true ? RESTART_FIRST_MESSAGE : detail(result.error)
       if (!ok) progress.error = message
+      // A later success for this package outdates what start-up repair said
+      // about it earlier in this process.
+      if (ok && directory !== undefined) {
+        const settledName = registryNameOf(target)
+        if (settledName !== undefined) clearStartupRepairEntry(profileName, directory, settledName)
+      }
       // The manager never settled: the profile may be half-updated, so this
       // is neither "nothing happened" nor something the route can restore
       // through the same stuck manager (#928).

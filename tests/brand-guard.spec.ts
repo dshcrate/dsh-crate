@@ -162,7 +162,7 @@ describe('C. 品牌文案', () => {
   })
 
   it('17. 投稿入口指向 dshcrate.com', () => {
-    expect(readSrc('client/MarketSection.tsx')).toMatch(/href="https:\/\/dshcrate\.com"/)
+    expect(readSrc('client/MarketHead.tsx')).toMatch(/href="https:\/\/dshcrate\.com"/)
   })
 
   it('18. 品牌面文件没有上游品牌残留', () => {

@@ -77,6 +77,8 @@ import { DEFAULT_UPDATE_CHECK_INTERVAL_HOURS, isUpdateCheckIntervalHours } from 
 import { createThemeManager, type LoaderEntry } from './themes.ts'
 import { readJsonBody, refuseUnadmitted, sameOrigin, sendJson } from './http.ts'
 import { resolveDshHome } from './home-paths.ts'
+import { readTelemetryState, setTelemetryEnabled, startHeartbeat } from './telemetry.ts'
+import { clearWebdavSecret, readWebdavSecret, webdavSecretFor, writeWebdavSecret } from './webdav-secret.ts'
 import { detectedDebugger, detectedSupervisor, restartAllowed, scheduleRestart, servingPort, trustedRestartRequest, trustedDownloadRequest, trustedSelfUninstallRequest, selfUninstallReachableFrom, type RecoveryHandoffConfig, restartReachableFrom } from './restart.ts'
 import type { RecoveryPlugin } from './recovery.ts'
 import { activationAfterReplace, brokenClientBundles, bundlePatchIsEmpty, checkClientBundle, defaultHostRuntimeFacts, findUnservedConfigNamespaces, hasHostHalf, hostPeerGate, isDeclaredLibraryDsh, newlyBrokenBundles, peerGateRemedy, verifyActivation } from './verify.ts'
@@ -3365,6 +3367,36 @@ export function mountMarketRoutes(
   const disposers = [
     registerRoute({
       kind: 'exact',
+      path: '/dsh-crate/telemetry',
+      handler: async (request, response) => {
+        if (request.method === 'GET') {
+          sendJson(response, 200, { enabled: readTelemetryState().enabled })
+          return
+        }
+        if (request.method !== 'POST') {
+          response.writeHead(405, { allow: 'GET, POST' })
+          response.end()
+          return
+        }
+        if (!sameOrigin(request)) {
+          sendJson(response, 403, { error: 'untrusted origin' })
+          return
+        }
+        try {
+          const body = await readJsonBody(request) as { enabled?: unknown } | null
+          if (body === null || typeof body !== 'object' || typeof body.enabled !== 'boolean') {
+            sendJson(response, 400, { error: 'enabled must be a boolean' })
+            return
+          }
+          setTelemetryEnabled(body.enabled)
+          sendJson(response, 200, { ok: true, enabled: body.enabled })
+        } catch {
+          sendJson(response, 400, { error: '没能保存这个设置，请再试一次。 / Could not save this setting. Try again.' })
+        }
+      },
+    }),
+    registerRoute({
+      kind: 'exact',
       path: '/dsh-crate/update-notifications',
       handler: async (request, response) => {
         if (request.method === 'GET') {
@@ -3913,19 +3945,39 @@ export function mountMarketRoutes(
       kind: 'exact',
       path: '/dsh-crate/webdav',
       handler: async (request, response) => {
+        if (request.method === 'GET') {
+          // #1058: whether a password is remembered, and for which address —
+          // never the password itself.
+          if (!sameOrigin(request)) return sendJson(response, 403, { error: 'untrusted origin' })
+          const stored = readWebdavSecret()
+          return sendJson(response, 200, stored === null ? { remembered: false } : { remembered: true, url: stored.url, username: stored.username })
+        }
         if (request.method !== 'POST') {
-          response.writeHead(405, { allow: 'POST' })
+          response.writeHead(405, { allow: 'GET, POST' })
           response.end()
           return
         }
         if (!sameOrigin(request)) return sendJson(response, 403, { error: 'untrusted origin' })
         try {
-          const body = await readJsonBody(request) as { action?: unknown; url?: unknown; username?: unknown; password?: unknown }
+          const body = await readJsonBody(request) as { action?: unknown; url?: unknown; username?: unknown; password?: unknown; remember?: unknown }
           const url = typeof body.url === 'string' ? body.url : ''
           const username = typeof body.username === 'string' ? body.username : ''
-          const password = typeof body.password === 'string' ? body.password : ''
+          const typed = typeof body.password === 'string' ? body.password : ''
+          if (body.action === 'forget') {
+            clearWebdavSecret()
+            return sendJson(response, 200, { ok: true })
+          }
+          if (body.action === 'remember') {
+            if (typed === '' || url === '') return sendJson(response, 400, { error: 'nothing to remember' })
+            writeWebdavSecret({ url, username, password: typed })
+            return sendJson(response, 200, { ok: true })
+          }
+          // An empty field falls back to the remembered password, but only for
+          // the exact address and user it was saved for.
+          const password = typed !== '' ? typed : (username !== '' ? webdavSecretFor(url, username) ?? '' : '')
           if (body.action === 'backup') {
             await uploadWebdav(url, username, password, createProfileBackup(config.profile, activeProfileDir))
+            if (body.remember === true && typed !== '') writeWebdavSecret({ url, username, password: typed })
             sendJson(response, 200, { ok: true })
           } else if (body.action === 'restore') {
             // The preview flow first returns the downloaded backup so the
@@ -3933,7 +3985,9 @@ export function mountMarketRoutes(
             // posts it to /dsh-crate/restore, where downloadWebdav's strict
             // validation guarantees the fetch result is never blindly echoed
             // (review #63).
-            sendJson(response, 200, { ok: true, backup: await downloadWebdav(url, username, password) })
+            const backup = await downloadWebdav(url, username, password)
+            if (body.remember === true && typed !== '') writeWebdavSecret({ url, username, password: typed })
+            sendJson(response, 200, { ok: true, backup })
           } else sendJson(response, 400, { error: 'invalid WebDAV action' })
         } catch (error) {
           // #999: a refusal that is not "the URL is wrong" says so — the code
@@ -5388,6 +5442,7 @@ export function mountMarketRoutes(
           channels: CHANNELS,
           region,
           regions: REGIONS,
+          anonymousCount: readTelemetryState().enabled,
           // The padded/PATH- and CI-safe build environment currently pinned
           // (issue #336): composition plus any card-saved override. The card
           // edits exactly what this reports, so the form never shows a stale
@@ -9265,8 +9320,15 @@ export function mountMarketRoutes(
   ]
 
   startCheckoutRepair()
+  const stopHeartbeat = startHeartbeat({
+    version: marketVersion(),
+    hostVersion: () => dshHostInfo()?.version ?? null,
+    kind: () => (config.desktopHost === true ? 'desktop' : 'web'),
+    region: () => region,
+  })
   return async () => {
     disposed = true
+    stopHeartbeat()
     checkoutRepairRound = undefined
     if (checkoutRepairTimer !== undefined) clearTimeout(checkoutRepairTimer)
     updateNotifications.dispose()

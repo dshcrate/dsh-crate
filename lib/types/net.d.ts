@@ -89,6 +89,7 @@ export declare function configuredProxy(): string | null;
 export declare function marketFetch(url: string, init?: {
     signal?: AbortSignal;
     headers?: Record<string, string>;
-    method?: 'GET' | 'HEAD';
+    method?: 'GET' | 'HEAD' | 'POST';
+    body?: string;
     redirect?: 'follow' | 'manual';
 }): Promise<Response>;
