@@ -217,6 +217,7 @@ function stubFetch(overrides: Record<string, unknown> = {}, mountPath = '') {
       : route === '/dsh-crate/installed' ? { profile: 'web', installed: {}, live: [], disabled: [], groups: {}, groupOrder: [], favorites: [], blocked: [] }
       : route === '/dsh-crate/status' ? { active: false, pnpm: true, boot: 'boot-1', restart: true, installed: {} }
       : route === '/dsh-crate/updates' ? { updates: {} }
+      : route === '/dsh-crate/telemetry/opened' ? { ok: true }
       : route === '/dsh-crate/toggle' ? { ok: true, disabled: [], live: [], activation: {} }
       : route === '/dsh-crate/groups' ? { ok: true, groups: {}, groupOrder: [], disabled: [] }
       : route === '/dsh-crate/favorite' ? { ok: true, favorites: [] }
@@ -4961,6 +4962,7 @@ describe('lost install progress (config page reopened)', () => {
               installed: settled ? { 'dsh-loop': '^1.0.0' } : {},
             }
           : path === '/dsh-crate/updates' ? { updates: {} }
+          : path === '/dsh-crate/telemetry/opened' ? { ok: true }
           : null
         if (payload === null) return Promise.reject(new Error(`unstubbed fetch: ${String(url)}`))
         return Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }))
@@ -5004,6 +5006,7 @@ describe('lost update progress (config page reopened)', () => {
               phase: settled ? null : 'downloading', currentPackage: settled ? null : 'is-odd@3.0.1', done: settled ? 0 : 3,
             }
           : path === '/dsh-crate/updates' ? { updates: {} }
+          : path === '/dsh-crate/telemetry/opened' ? { ok: true }
           : null
         if (payload === null) return Promise.reject(new Error(`unstubbed fetch: ${String(url)}`))
         return Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }))
