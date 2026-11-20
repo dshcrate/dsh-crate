@@ -851,22 +851,22 @@ describe('SettingsCard — build environment (#336)', () => {
 })
 
 describe('SettingsCard — anonymous usage count', () => {
-  it('says exactly what is sent, and is off by default', async () => {
-    stubFetch({ anonymousCount: false })
+  it('says exactly what is sent, and is on by default', async () => {
+    stubFetch({ anonymousCount: true })
     await open()
     await waitFor(() => { expect(screen.getByText(t('setCount'))).toBeTruthy() })
     expect(screen.getByText(t('setCountHint'))).toBeTruthy()
-    expect(screen.getByRole('button', { name: t('setCountOff') }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: t('setCountOn') }).getAttribute('aria-pressed')).toBe('true')
   })
 
-  it('turns on at once and shows what the server saved', async () => {
-    stubFetch({ anonymousCount: false })
+  it('turns off at once and shows what the server saved', async () => {
+    stubFetch({ anonymousCount: true })
     await open()
-    await waitFor(() => { expect(screen.getByRole('button', { name: t('setCountOn') })).toBeTruthy() })
-    fireEvent.click(screen.getByRole('button', { name: t('setCountOn') }))
+    await waitFor(() => { expect(screen.getByRole('button', { name: t('setCountOff') })).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: t('setCountOff') }))
     await waitFor(() => {
-      expect(calls.find(call => call.path.endsWith('/dsh-crate/telemetry'))?.body).toEqual({ enabled: true })
-      expect(screen.getByRole('button', { name: t('setCountOn') }).getAttribute('aria-pressed')).toBe('true')
+      expect(calls.find(call => call.path.endsWith('/dsh-crate/telemetry'))?.body).toEqual({ enabled: false })
+      expect(screen.getByRole('button', { name: t('setCountOff') }).getAttribute('aria-pressed')).toBe('true')
     })
   })
 

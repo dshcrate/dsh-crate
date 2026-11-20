@@ -3,10 +3,10 @@ import { marketFetch } from './net.ts';
  * The anonymous daily count.
  *
  * One POST per install per UTC day, from the Node side only, carrying exactly
- * five fields (see `Ping`). It is OFF by default and only runs after the user
- * turns it on in the settings card; `DSH_CRATE_TELEMETRY=0` and
- * `DO_NOT_TRACK=1` always win. Everything about it is best effort: a failure
- * changes nothing for the user and is never an error.
+ * five fields (see `Ping`). It is ON by default and off with one switch in
+ * the settings card or with `DSH_CRATE_TELEMETRY=0` / `DO_NOT_TRACK=1`.
+ * Everything about it is best effort: a failure changes nothing for the user
+ * and is never an error.
  */
 export declare const TELEMETRY_URL = "https://dshcrate.com/api/telemetry";
 /** The whole payload. Adding a field here is a privacy change: update SECURITY.md. */

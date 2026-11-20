@@ -1529,7 +1529,7 @@ describe('host recovery (#875)', () => {
 
 describe('anonymous usage count route', () => {
   it('reads the default, saves the switch, and keeps the rest of the file', async () => {
-    expect(jsonBody(await hit(routes, '/dsh-crate/telemetry', { method: 'GET', url: '/dsh-crate/telemetry' }))).toEqual({ enabled: false })
+    expect(jsonBody(await hit(routes, '/dsh-crate/telemetry', { method: 'GET', url: '/dsh-crate/telemetry' }))).toEqual({ enabled: true })
     const file = join(tmp, 'dsh-crate', 'telemetry.json')
     mkdirSync(join(tmp, 'dsh-crate'), { recursive: true })
     writeFileSync(file, JSON.stringify({ id: 'a'.repeat(32), lastDay: '2026-01-01', enabled: true }))

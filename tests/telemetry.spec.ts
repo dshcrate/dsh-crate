@@ -27,17 +27,16 @@ describe('anonymous usage count', () => {
     expect(telemetryFile('/h/.dsh')).toBe(join('/h/.dsh', 'dsh-crate', 'telemetry.json'))
   })
 
-  it('is off by default and sends nothing until turned on', async () => {
+  it('is on by default and sends without opting in', async () => {
     const { options, fetch, file } = setup()
-    expect(readTelemetryState(file)).toEqual({ enabled: false })
-    expect(await sendHeartbeat(options)).toBe('skipped')
-    expect(fetch).not.toHaveBeenCalled()
-    expect(existsSync(file)).toBe(false)
+    expect(readTelemetryState(file)).toEqual({ enabled: true })
+    expect(await sendHeartbeat(options)).toBe('sent')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(readFileSync(file, 'utf8')).enabled).toBe(true)
   })
 
   it('sends exactly five fields to the endpoint', async () => {
     const { options, fetch, file } = setup()
-    setTelemetryEnabled(true, file)
     expect(await sendHeartbeat(options)).toBe('sent')
     const [url, init] = fetch.mock.calls[0] as [string, { method: string; body: string }]
     expect(url).toBe(TELEMETRY_URL)
@@ -50,15 +49,13 @@ describe('anonymous usage count', () => {
   })
 
   it('sends a null host version and the desktop kind as they are', async () => {
-    const { options, fetch, file } = setup({ hostVersion: () => null, kind: () => 'desktop' })
-    setTelemetryEnabled(true, file)
+    const { options, fetch } = setup({ hostVersion: () => null, kind: () => 'desktop' })
     await sendHeartbeat(options)
     expect(JSON.parse((fetch.mock.calls[0] as [string, { body: string }])[1].body)).toMatchObject({ hv: null, kind: 'desktop' })
   })
 
   it('sends once per UTC day, keeps the same id, and sends again the next day', async () => {
-    const { options, fetch, day, file } = setup()
-    setTelemetryEnabled(true, file)
+    const { options, fetch, day } = setup()
     expect(await sendHeartbeat(options)).toBe('sent')
     day.at = Date.UTC(2026, 10, 20, 23, 59)
     expect(await sendHeartbeat(options)).toBe('skipped')
@@ -71,19 +68,15 @@ describe('anonymous usage count', () => {
 
   it('does not record the day when the request fails', async () => {
     const { options, file } = setup({ fetch: ok(500) })
-    setTelemetryEnabled(true, file)
     expect(await sendHeartbeat(options)).toBe('failed')
     expect(readTelemetryState(file).lastDay).toBeUndefined()
     const thrown = setup({ fetch: vi.fn(async () => { throw new Error('offline') }) as never })
-    setTelemetryEnabled(true, thrown.file)
     expect(await sendHeartbeat(thrown.options)).toBe('failed')
-    expect(existsSync(thrown.file)).toBe(true)
-    expect(readTelemetryState(thrown.file).lastDay).toBeUndefined()
+    expect(existsSync(thrown.file)).toBe(false)
   })
 
   it('sends nothing when turned off in settings, and keeps the id and day', async () => {
     const { options, fetch, file } = setup()
-    setTelemetryEnabled(true, file)
     await sendHeartbeat(options)
     setTelemetryEnabled(false, file)
     expect(readTelemetryState(file)).toMatchObject({ enabled: false, lastDay: '2026-11-20' })
@@ -106,8 +99,7 @@ describe('anonymous usage count', () => {
 
   it('lets a test opt in with its own URL, but never past an explicit opt-out', async () => {
     const env = { VITEST: 'true', CI: 'true', DSH_CRATE_TELEMETRY_URL: 'http://127.0.0.1:9/ping' }
-    const { options, fetch, file } = setup({ env })
-    setTelemetryEnabled(true, file)
+    const { options, fetch } = setup({ env })
     expect(await sendHeartbeat(options)).toBe('sent')
     expect(fetch.mock.calls[0]?.[0]).toBe('http://127.0.0.1:9/ping')
     expect(suppressedBy({ ...env, DSH_CRATE_TELEMETRY: '0' })).not.toBeNull()
@@ -118,6 +110,6 @@ describe('anonymous usage count', () => {
     const { file } = setup()
     setTelemetryEnabled(true, file)
     writeFileSync(file, '{nope')
-    expect(readTelemetryState(file)).toEqual({ enabled: false })
+    expect(readTelemetryState(file)).toEqual({ enabled: true })
   })
 })
