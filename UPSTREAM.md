@@ -33,7 +33,7 @@ npm run typecheck
 npm run build:client
 ```
 
-`npm test` 会跑 `tests/brand-guard.spec.ts`，品牌、数据源、三语文案、视觉几何共 32 项断言，任何一项红都说明同步把本地定制覆盖了。
+`npm test` 会跑 `tests/brand-guard.spec.ts`，品牌、数据源、三语文案、视觉几何共 29 项断言，任何一项红都说明同步把本地定制覆盖了。
 
 ## 分类与处理
 
