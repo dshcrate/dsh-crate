@@ -87,7 +87,7 @@ npm run build:client
 - 上游的品牌字符串（`dsh-market`、`Plugin Market`、`插件市场`）不能进入 `src/client` 与 `locale`
 - v1.74.0 起上游文案改用通用词，品牌回写还要覆盖 `plugin market`（小写）、`プラグインマーケット`、`dsh-plugin-catalog` 索引地址与 `plugin_market` 工具名；`locales.ts` 直接以本地 HEAD 为准、只补上游新增键，比逐条改文案稳
 - 品牌统一后，上游测试里的包名 `dshmarket` 与头部仓库链接文字都会变成 `dsh-crate`，`queryByText('dsh-crate')` 这类整屏断言会误命中链接；改用 `queryByTitle('dsh-crate')` 或限定行元素
-- `src/client/sponsors.generated.ts` 的 `SHOW_SPONSORS=false` 不在保护清单里时会被整文件覆盖；同步后必须确认该开关仍在，且 `client.js` 里没有 `qiniu` 等赞助商数据
+- `src/client/sponsors.generated.ts` 已纳入保护清单；同步后仍要确认 `SHOW_SPONSORS=false` 还在，且 `client.js` 里没有 `qiniu` 等赞助商数据
 - 上游的 registry / catalog 源地址不能覆盖 `src/regions.ts` 里的 `CATALOG_OFFICIAL`
 - 插件页整页滚动和底部 64px 跟随上游，不是本地定制；同步时不要回贴，也不要为它们单独改断言
 - 品牌回写必须在**所有合并完成后**统一再跑一遍：合并会把上游新片段带进 `src`/`tests`/`locale`，合并前替换会漏；CSS 里的 `data-dsh-market-*` 属性名是最容易漏的点（2026-11-19 漏了两条吸顶规则）
