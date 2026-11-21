@@ -85,6 +85,9 @@ npm run build:client
 - 上游和本地都改过的文件（`locales.ts`、`MarketSection.tsx`、`client.js`）cherry-pick 必冲突，必须逐块手工合并
 - 上游版本号是 `1.73.x`，本地是 `0.5.x`；不要引入上游版本号、tag、包名
 - 上游的品牌字符串（`dsh-market`、`Plugin Market`、`插件市场`）不能进入 `src/client` 与 `locale`
+- v1.74.0 起上游文案改用通用词，品牌回写还要覆盖 `plugin market`（小写）、`プラグインマーケット`、`dsh-plugin-catalog` 索引地址与 `plugin_market` 工具名；`locales.ts` 直接以本地 HEAD 为准、只补上游新增键，比逐条改文案稳
+- 品牌统一后，上游测试里的包名 `dshmarket` 与头部仓库链接文字都会变成 `dsh-crate`，`queryByText('dsh-crate')` 这类整屏断言会误命中链接；改用 `queryByTitle('dsh-crate')` 或限定行元素
+- `src/client/sponsors.generated.ts` 的 `SHOW_SPONSORS=false` 不在保护清单里时会被整文件覆盖；同步后必须确认该开关仍在，且 `client.js` 里没有 `qiniu` 等赞助商数据
 - 上游的 registry / catalog 源地址不能覆盖 `src/regions.ts` 里的 `CATALOG_OFFICIAL`
 - 插件页整页滚动和底部 64px 跟随上游，不是本地定制；同步时不要回贴，也不要为它们单独改断言
 - 品牌回写必须在**所有合并完成后**统一再跑一遍：合并会把上游新片段带进 `src`/`tests`/`locale`，合并前替换会漏；CSS 里的 `data-dsh-market-*` 属性名是最容易漏的点（2026-11-19 漏了两条吸顶规则）
@@ -106,5 +109,6 @@ npm run build:client
 | 2026-11-19 | v1.73.20 → v1.73.22 | 45 个功能/修复提交：设置页市场迁移提示（SettingsNotice）、更新批量重启与 release blocker、收藏移除、自更新可用时间、导出与更新状态 i18n、Release 归档描述、排序偏好、启动修复报告、release history、registry 并发请求合并；依赖 `undici ^7.30.2` | 本次提交 | README/站点/文档/演示截图/站点构建脚本（本仓无 `site/` 发布链路）、两个版本号提交；保护文件逐块合并，`registry.ts` 保留 `entries` 桥接，品牌串改写为 `dsh-crate`，`client.js` 本地重建 |
 | 2026-11-20 | v1.73.22 → v1.73.24 | MarketSection 组件拆分重构（`dac32de`、`5e5a8b6`、`f716b32`、`16976f8`）、启动修复收尾 remove-then-install（`bdfa1c3`）、scoped 包逐个判定（`6a7a02d`）、WebDAV 记住密码（`c866d50`）、搜索同义词与排序（`2328396`、`ce59e0c`）、赞助商换行（`f9e516f`）、匿名遥测（`bbe6e25`、`9aaff8e`，本地改为默认开启） | `d74e132`（同步）、`c51d68a`（legacy 清理）、`7fe9c77`（默认开启） | README/站点/`SECURITY.md`、`telemetry/` 上游服务端、`package-lock.json`、版本号提交；保护文件逐块合并并回贴箱子 logo、设置页吸顶；品牌串改写为 `dsh-crate`，遥测 URL 改为 `https://dshcrate.com/api/telemetry`、状态目录 `dsh-crate`，`client.js` 本地重建 |
 | 2026-11-20 | v1.73.24 → v1.73.25 | `71d3dfc`（当天打开页面额外上报 `opened:true`、`lastOpenDay`、`/telemetry/opened`）；`d0967c7` 仅版本号跳过 | `a754937`（插件）、`df5f032`（测试 stub）、`03174c7`（站点服务端与看板） | `e6a2b4b` README 商务合作、上游站点隐私页、版本号；D1 增加 `opened` 列，Pages Function 与看板同步 |
+| 2026-11-21 | v1.73.25 → v1.74.0（含 `fb38e08`、`a05f16d`） | `196ace9`（紧凑头部、卡片标题进详情、两行卡片元信息、最近收录翻页箭头）、`b05db65`（赞助商华龙算力）、`9aeab86`（收藏/主题/隐藏页目录重试）、`b9438a7`（发布等待期只标注被拦的更新）、`fb38e08`（测试先打开已安装页）、`a05f16d`（搜索框 × 保留焦点） | 本次提交 | 版本号 `4c5b8f6`/`76f4132`、README 与站点截图 `899c0f8`/`acad04b`/`e6a2b4b`；保护文件逐块合并，设置页吸顶与箱子 logo 回贴，`locales.ts` 回到本地 HEAD 再补新键，赞助商默认关闭，品牌串与测试断言同步修正，`client.js` 本地重建 |
 
 新的同步完成后，在表里追加一行：上游版本范围、采纳的 commit、对应的本地 commit、跳过项及原因。
