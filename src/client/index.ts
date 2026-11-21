@@ -157,7 +157,7 @@ export function apply(ctx: MarketClientContext): void {
   } catch (error) {
     console.error(
       '[dsh-crate] mounting failed, so the market is missing for this session. '
-      + 'The rest of the app is unaffected. Report at https://github.com/dsh-crate/dsh-crate/issues '
+      + 'The rest of the app is unaffected. Report at https://github.com/dshcrate/dsh-crate/issues '
       + 'with this line and the stack below:',
       error,
     )

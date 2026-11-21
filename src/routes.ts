@@ -4954,7 +4954,7 @@ export function mountMarketRoutes(
             const body = (await readJsonBody(request)) as { name?: unknown; enabled?: unknown }
             const name = typeof body.name === 'string' ? body.name : ''
             const enabled = body.enabled === true
-            if (name === 'dsh-crate' || name === 'dsh-crate') {
+            if (name === 'dsh-crate') {
               sendJson(response, 400, { error: 'the market cannot be disabled from its own page; use the dsh CLI' })
               return
             }
@@ -8354,7 +8354,7 @@ export function mountMarketRoutes(
             // has a concrete thing to go fix, so an override would only help
             // them break their next boot.
             const force = body.force === true
-            if (name === 'dsh-crate' || name === 'dsh-crate') {
+            if (name === 'dsh-crate') {
               sendJson(response, 400, { error: 'the market cannot uninstall itself; use the dsh CLI' })
               return
             }

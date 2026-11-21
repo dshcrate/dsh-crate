@@ -105,7 +105,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
           {/* A quiet pointer back to the project — most visitors reach the
               market through a client that embeds it, with no other way to
               find the repo it came from. */}
-          <a className={css.repoLink} href="https://github.com/dsh-crate/dsh-crate" target="_blank" rel="noreferrer" title="dsh-crate · GitHub">dsh-crate</a>
+          <a className={css.repoLink} href="https://github.com/dshcrate/dsh-crate" target="_blank" rel="noreferrer" title="dsh-crate · GitHub">dsh-crate</a>
           {version !== null && (
             <span className={css.marketVersionGroup}>
               <span className={css.version} title={t('versionHint')}>v{version}</span>

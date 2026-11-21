@@ -1016,7 +1016,7 @@ export function useMarketRender(c: MarketRenderIn) {
 
   /** Installed plugins the market itself cannot group (#60). */
   const groupableNames = Object.keys(installed)
-    .filter(name => name !== 'dsh-crate' && name !== 'dsh-crate' && !dependencyOnlyNames.has(name))
+    .filter(name => name !== 'dsh-crate' && !dependencyOnlyNames.has(name))
   /** Names already inside some group; everything else shows under "ungrouped". */
   const groupedNames = useMemo(() => new Set(Object.values(groups).flat()), [groups])
   const ungroupedNames = groupableNames.filter(name => !groupedNames.has(name))
@@ -1090,7 +1090,7 @@ export function useMarketRender(c: MarketRenderIn) {
   const batchActions = (
     <>
       {(() => {
-        const self = installed['dsh-crate'] !== undefined ? 'dsh-crate' : 'dsh-crate'
+        const self = 'dsh-crate'
         const status = updates[self]
         return status && status.updateAvailable && !updatedNames.includes(self)
           && !quietUpdateSet.has(self)

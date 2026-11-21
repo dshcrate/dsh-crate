@@ -501,7 +501,7 @@ export function InstalledTab({ c }: { c: InstalledTabCtx }) {
                         </span>
                         {entry?.deprecated === true && <span className={css.depBadge}>{t('deprecatedBadge')}</span>}
                       </div>
-                      {!missing && name !== 'dsh-crate' && name !== 'dsh-crate' && (
+                      {!missing && name !== 'dsh-crate' && (
                         <span className={css.irowMenu}>{renderInstalledBlockMenu(name)}</span>
                       )}
                       </div>

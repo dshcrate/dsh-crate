@@ -14475,7 +14475,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 					return next;
 				});
 			}, []);
-			const selfName = installed["dsh-crate"] !== void 0 ? "dsh-crate" : "dsh-crate";
+			const selfName = "dsh-crate";
 			const updatableNames = Object.keys(installed).filter((name) => name !== selfName && !effectiveDisabledSet.has(name) && isPluginUpdatable(name, String(installed[name]), updates[name], updatedNames));
 			const batchUpdatableNames = updatableNames.filter((name) => updates[name]?.restoreRequired !== true);
 			const ignoredUpdateSet = (0, react.useMemo)(() => new Set(ignoredUpdateNames), [ignoredUpdateNames]);
@@ -16972,7 +16972,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			*/
 			const pendingRefreshNames = (0, react.useMemo)(() => [.../* @__PURE__ */ new Set([...hotNames, ...refreshNames])], [hotNames, refreshNames]);
 			/** Installed plugins the market itself cannot group (#60). */
-			const groupableNames = Object.keys(installed).filter((name) => name !== "dsh-crate" && name !== "dsh-crate" && !dependencyOnlyNames.has(name));
+			const groupableNames = Object.keys(installed).filter((name) => name !== "dsh-crate" && !dependencyOnlyNames.has(name));
 			/** Names already inside some group; everything else shows under "ungrouped". */
 			const groupedNames = (0, react.useMemo)(() => new Set(Object.values(groups).flat()), [groups]);
 			const ungroupedNames = groupableNames.filter((name) => !groupedNames.has(name));
@@ -17054,7 +17054,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				applyGroupTheme,
 				authoredDescription,
 				batchActions: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(() => {
-					const self = installed["dsh-crate"] !== void 0 ? "dsh-crate" : "dsh-crate";
+					const self = "dsh-crate";
 					const status = updates[self];
 					return status && status.updateAvailable && !updatedNames.includes(self) && !quietUpdateSet.has(self) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
 						variant: "primary",
@@ -17926,7 +17926,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 								children: [
 									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
 										className: Market_module_css_default.repoLink,
-										href: "https://github.com/dsh-crate/dsh-crate",
+										href: "https://github.com/dshcrate/dsh-crate",
 										target: "_blank",
 										rel: "noreferrer",
 										title: "dsh-crate · GitHub",
@@ -19798,7 +19798,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 												className: Market_module_css_default.depBadge,
 												children: t("deprecatedBadge")
 											})]
-										}), !missing && name !== "dsh-crate" && name !== "dsh-crate" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										}), !missing && name !== "dsh-crate" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 											className: Market_module_css_default.irowMenu,
 											children: renderInstalledBlockMenu(name)
 										})]
@@ -23049,7 +23049,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			try {
 				mountMarket(ctx);
 			} catch (error) {
-				console.error("[dsh-crate] mounting failed, so the market is missing for this session. The rest of the app is unaffected. Report at https://github.com/dsh-crate/dsh-crate/issues with this line and the stack below:", error);
+				console.error("[dsh-crate] mounting failed, so the market is missing for this session. The rest of the app is unaffected. Report at https://github.com/dshcrate/dsh-crate/issues with this line and the stack below:", error);
 			}
 		}
 		/**

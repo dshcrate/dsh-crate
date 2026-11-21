@@ -456,7 +456,7 @@ export function useMarketGroupsBackup(c: MarketGroupsBackupIn) {
 
   // The market itself stays out of the batch: its update reloads this page
   // mid-run, which would strand the remaining items.
-  const selfName = installed['dsh-crate'] !== undefined ? 'dsh-crate' : 'dsh-crate'
+  const selfName = 'dsh-crate'
   const updatableNames = Object.keys(installed).filter(
     name => name !== selfName
       && !effectiveDisabledSet.has(name)
