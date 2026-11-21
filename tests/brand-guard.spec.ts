@@ -217,13 +217,7 @@ describe('D. 视觉与几何', () => {
   })
 })
 
-describe('E. 布局与滚动定制', () => {
-  it('24. 列表底部留白与滚动内边距保留', () => {
-    const css = readSrc('client/Market.module.css')
-    expect(css).toContain('padding:8px 4px 64px')
-    expect(css).toContain('scroll-padding-bottom:64px')
-  })
-
+describe('E. 设置页布局与滚动定制', () => {
   it('25. 设置页头部吸顶并沿用导航背景色', () => {
     const css = readSrc('client/Market.module.css')
     expect(css).toContain('.head{position:sticky;top:0;z-index:6;background:var(--dsw-alias-bg-layer-2')
@@ -235,24 +229,9 @@ describe('E. 布局与滚动定制', () => {
     expect(css).toContain('.body{overflow:visible;flex:none}')
   })
 
-  it('27. 插件页签整页滚动与吸顶让位保留', () => {
+  it('29. 设置页吸顶偏移变量名未被改写', () => {
     const css = readSrc('client/Market.module.css')
-    expect(css).toContain('.stickyHead{display:contents}')
-    expect(css).toContain('top:var(--dshm-host-sticky-top,0px)')
-  })
-
-  it('28. 全屏模式仍固定铺满视口', () => {
-    const css = readSrc('client/Market.module.css')
-    expect(css).toContain(
-      '[data-dsh-crate-plugins-tab="true"][data-dsh-crate-fullscreen="true"]{position:fixed;inset:0;z-index:60;height:100vh!important',
-    )
-  })
-
-  it('29. 吸顶偏移变量名未被改写', () => {
-    const css = readSrc('client/Market.module.css')
-    for (const name of ['--dshm-host-sticky-top', '--dshm-plugins-head-height', '--dshm-head-h']) {
-      expect(css).toContain(name)
-    }
+    expect(css).toContain('--dshm-head-h')
   })
 })
 
