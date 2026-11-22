@@ -161,8 +161,14 @@ describe('C. 品牌文案', () => {
     expect(enLocale.meta.description.length).toBeGreaterThan(0)
   })
 
-  it('17. 投稿入口指向 dshcrate.com', () => {
-    expect(readSrc('client/MarketHead.tsx')).toMatch(/href="https:\/\/dshcrate\.com"/)
+  it('17. 投稿入口指向 dshcrate.com/submit', () => {
+    expect(readSrc('client/MarketHead.tsx')).toMatch(/href="https:\/\/dshcrate\.com\/submit"/)
+  })
+
+  it('17b. 顶部 logo 保持 15px 且右移 2px', () => {
+    const head = readSrc('client/MarketHead.tsx')
+    expect(head).toContain('<MarketLogo size={15} ambient')
+    expect(head).toContain("transform: 'translateX(2px)'")
   })
 
   it('18. 品牌面文件没有上游品牌残留', () => {

@@ -105,7 +105,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
         {surface !== 'plugins' && (
         <div className={css.headTop}>
         <div className={css.titleRow}>
-          <MarketLogo size={18} ambient style={{ flexShrink: 0 }} />
+          <MarketLogo size={15} ambient style={{ flexShrink: 0, transform: 'translateX(2px)' }} />
           <h2 className={css.title}>{t('nav')}</h2>
           <p className={css.sub}>{t('subtitle')}</p>
           </div>
@@ -124,7 +124,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
               )}
             </span>
           )}
-          <a className={css.submitLink} href="https://dshcrate.com" target="_blank" rel="noreferrer">{t('submitPlugin')}</a>
+          <a className={css.submitLink} href="https://dshcrate.com/submit" target="_blank" rel="noreferrer">{t('submitPlugin')}</a>
           </div>
         </div>
         )}

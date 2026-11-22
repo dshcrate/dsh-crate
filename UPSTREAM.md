@@ -33,7 +33,7 @@ npm run typecheck
 npm run build:client
 ```
 
-`npm test` 会跑 `tests/brand-guard.spec.ts`，品牌、数据源、三语文案、视觉几何共 29 项断言，任何一项红都说明同步把本地定制覆盖了。
+`npm test` 会跑 `tests/brand-guard.spec.ts`，品牌、数据源、三语文案、视觉几何共 30 项断言，任何一项红都说明同步把本地定制覆盖了。
 
 ## 分类与处理
 
@@ -67,13 +67,13 @@ npm run build:client
 
 ### 防护断言
 
-`tests/brand-guard.spec.ts` 共 29 项，随 `npm test` 运行：
+`tests/brand-guard.spec.ts` 共 30 项，随 `npm test` 运行：
 
 | 组 | 覆盖内容 | 数量 |
 |---|---|---|
 | A | 身份与升级 | 9 |
 | B | 数据源 | 1 |
-| C | 品牌文案 | 9 |
+| C | 品牌文案 | 10 |
 | D | 视觉与几何 | 4 |
 | E | 设置页布局与滚动（吸顶与背景色、无内层滚动、吸顶变量） | 3 |
 | F | 导航图标（行选择器、尺寸与掩膜、标记与清除） | 3 |
@@ -96,6 +96,7 @@ npm run build:client
 - `search-synonyms.ts` 已从 `src/client/` 移到 `src/`，同步时删除旧文件并更新两处 import，避免重复模块
 - 构建产物也要查：`client/client.js` 中上游品牌必须为 0，`lib/registry.js` 必须含 `parseCatalog`；再用 `lib/registry.js` 的 `loadRegistry()` 真实加载一次线上目录，确认 `entries` 桥接可用
 - 非保护文件按文件清单 checkout，不要 `git checkout <tag> -- tests` 整目录覆盖，否则会冲掉本地定制测试（品牌防护、滚动、图标、拓扑适配）
+- `src/client/MarketHead.tsx` 顶部 logo 固定 `size={15}` + `translateX(2px)`；上游 v1.73.24 起是 18px 且无位移，cherry-pick 后会覆盖，必须回贴（brand-guard 17b 会拦）。投稿链接固定 `https://dshcrate.com/submit`，不要退回首页
 
 ## 同步记录
 
@@ -113,6 +114,6 @@ npm run build:client
 | 2026-11-20 | v1.73.24 → v1.73.25 | `71d3dfc`（当天打开页面额外上报 `opened:true`、`lastOpenDay`、`/telemetry/opened`）；`d0967c7` 仅版本号跳过 | `a754937`（插件）、`df5f032`（测试 stub）、`03174c7`（站点服务端与看板） | `e6a2b4b` README 商务合作、上游站点隐私页、版本号；D1 增加 `opened` 列，Pages Function 与看板同步 |
 | 2026-11-21 | v1.73.25 → v1.74.0（含 `fb38e08`、`a05f16d`） | `196ace9`（紧凑头部、卡片标题进详情、两行卡片元信息、最近收录翻页箭头）、`b05db65`（赞助商华龙算力）、`9aeab86`（收藏/主题/隐藏页目录重试）、`b9438a7`（发布等待期只标注被拦的更新）、`fb38e08`（测试先打开已安装页）、`a05f16d`（搜索框 × 保留焦点） | 本次提交 | 版本号 `4c5b8f6`/`76f4132`、README 与站点截图 `899c0f8`/`acad04b`/`e6a2b4b`；保护文件逐块合并，设置页吸顶与箱子 logo 回贴，`locales.ts` 回到本地 HEAD 再补新键，赞助商默认关闭，品牌串与测试断言同步修正，`client.js` 本地重建 |
 | 2026-11-21 | v1.74.0 → v1.75.0（`upstream/main` `f763bf6`） | `54de7b2`（Installed 页显示市场自身新版本提示：版本号、重启生效说明、更新按钮、按版本关闭、页签圆点） | 本次提交 | `4f449ec` 私有遥测看板与 `f763bf6` 删除看板净变化为 0、`6fd478f` 版本号、`SECURITY.md` 看板保留说明；保护文件逐块合并，保留 `SHOW_SPONSORS=false`、投稿链接与仓库链接修正，`locales.ts` 补三语 `marketOfferBanner`/`marketOfferHint`，`client.js` 本地重建 |
-| 2026-11-22 | v1.75.0 → v1.77.1（`upstream/main` `5b86e58`） | `8a088fe`（AI 搜索与聊天 `/find-plugin`）、`b7799fb`（AI 猜你喜欢、允许 AI 参考已安装/收藏）、`0516faf`（侧栏提示加撤销）、`16f91cc`（disable-list 重放不再拖垮宿主）、`28385cf`（provision 不继承已删除 cwd）、`a6221b2`（官方 bundle 不被 peer 副本误判）、`d696348`（目录校验脚本与测试，上游 CI workflow 跳过） | 本次提交 | README/站点/特性截图/`SECURITY.md`、`.github` 上游 CI、4 个 release 版本号提交；保护文件逐块合并，保留 `dsh-crate` 身份、设置页吸顶、箱子 logo、投稿链接、`SHOW_SPONSORS=false`；`search-synonyms` 从 `src/client` 移到 `src`，品牌与 `/dsh-market/*` 路由回写为 `/dsh-crate/*`，`client.js` 本地重建 |
+| 2026-11-22 | v1.75.0 → v1.77.1（`upstream/main` `5b86e58`） | `8a088fe`（AI 搜索与聊天 `/find-plugin`）、`b7799fb`（AI 猜你喜欢、允许 AI 参考已安装/收藏）、`0516faf`（侧栏提示加撤销）、`16f91cc`（disable-list 重放不再拖垮宿主）、`28385cf`（provision 不继承已删除 cwd）、`a6221b2`（官方 bundle 不被 peer 副本误判）、`d696348`（目录校验脚本与测试，上游 CI workflow 跳过） | 本次提交 | README/站点/特性截图/`SECURITY.md`、`.github` 上游 CI、4 个 release 版本号提交；保护文件逐块合并，保留 `dsh-crate` 身份、设置页吸顶、`SHOW_SPONSORS=false`；顶部 logo 回贴 15px+右移 2px，投稿链接改为 `https://dshcrate.com/submit`；`search-synonyms` 从 `src/client` 移到 `src`，品牌与 `/dsh-market/*` 路由回写为 `/dsh-crate/*`，`client.js` 本地重建 |
 
 新的同步完成后，在表里追加一行：上游版本范围、采纳的 commit、对应的本地 commit、跳过项及原因。

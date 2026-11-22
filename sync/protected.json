@@ -13,7 +13,7 @@
     { "path": "src/client/index.ts", "why": "客户端包名与导出", "merge": "manual" },
     { "path": "src/client/locales.ts", "why": "三语品牌与文案", "merge": "manual" },
     { "path": "src/client/MarketSection.tsx", "why": "插件端界面定制（入口、surface 属性、设置页吸顶变量）", "merge": "manual" },
-    { "path": "src/client/MarketHead.tsx", "why": "投稿链接与赞助商开关", "merge": "manual" },
+    { "path": "src/client/MarketHead.tsx", "why": "顶部 logo 15px+右移 2px、投稿链接 /submit、赞助商开关", "merge": "manual" },
     { "path": "src/client/sponsors.generated.ts", "why": "赞助商开关 SHOW_SPONSORS=false", "merge": "manual" },
     { "path": "src/client/MarketLogo.tsx", "why": "箱子 logo、inset 与扫光", "merge": "manual" },
     { "path": "src/client/Market.module.css", "why": "滚动、吸顶、导航背景色、底部留白", "merge": "manual" },

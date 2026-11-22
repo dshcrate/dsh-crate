@@ -18156,9 +18156,12 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 								className: Market_module_css_default.titleRow,
 								children: [
 									/* @__PURE__ */ (0, react_jsx_runtime.jsx)(MarketLogo, {
-										size: 18,
+										size: 15,
 										ambient: true,
-										style: { flexShrink: 0 }
+										style: {
+											flexShrink: 0,
+											transform: "translateX(2px)"
+										}
 									}),
 									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", {
 										className: Market_module_css_default.title,
@@ -18201,7 +18204,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 									}),
 									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
 										className: Market_module_css_default.submitLink,
-										href: "https://dshcrate.com",
+										href: "https://dshcrate.com/submit",
 										target: "_blank",
 										rel: "noreferrer",
 										children: t("submitPlugin")
