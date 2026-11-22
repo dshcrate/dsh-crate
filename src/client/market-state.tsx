@@ -307,6 +307,8 @@ const t = props.t
   const [qFavorites, setQFavorites] = useState('')
   const [qInstalled, setQInstalled] = useState('')
   const [cat, setCat] = useState('all')
+  /** Which catalog Discover is narrowed to; 'all' unless more than one is loaded. */
+  const [source, setSource] = useState('all')
   // FLAQ Desktop supplies this for onboarding/feature navigation; upstream dsh web omits it, so ordinary web opens intentionally leave this effect idle.
   useEffect(() => {
     const target = props.preferredSubsectionId
@@ -321,6 +323,7 @@ const t = props.t
     } else if (kind === 'discover') {
       setTab('discover')
       setCat('all')
+      setSource('all')
       setQ(value)
       resetDiscoverSearch(n => n + 1)
     }
@@ -604,7 +607,7 @@ const t = props.t
     return {
       title: pluginName(entry.name, entry.npm),
       author: entry.owner === '' ? undefined : entry.owner,
-      avatar: <OwnerAvatar name={entry.name} owner={entry.owner || ''} icon={entry.icon ?? undefined} />,
+      avatar: <OwnerAvatar name={entry.name} owner={entry.owner || ''} icon={entry.icon ?? undefined} trusted={entry.source !== undefined} />,
     }
   }, [data])
   /** Ids are sequential rather than random so a replayed session is stable. */
@@ -1349,7 +1352,7 @@ const t = props.t
     setActivationWarnings, setActivations, setAddPanel, setAddQuery, setAddSelected,
     setAgentsConfirm, setAssignFor, setAutoBackup, setBackupBusy, setBackupMessage,
     setBackupRestored, setBlockError, setBlockNotice, setBlockedNames, setBootId, setBrokenPlugins,
-    setBuildsSkipped, setBusyUrl, setCancelling, setCapsOpen, setCat, setCatsOpen, setCatsSentinel,
+    setBuildsSkipped, setBusyUrl, setCancelling, setCapsOpen, setCat, setSource, source, setCatsOpen, setCatsSentinel,
     setCatsStuck, setCheckingUpdates, setCheckoutRecovery, setClearingStale, setCmdOpen,
     setCollapsedGroups, setCommentsFor, setCompatRetry, setCompatibilityNotice,
     setCompatibleWithHost, setConfirming, setCreatingGroup, setDebuggerLatch, setDeletingGroup,

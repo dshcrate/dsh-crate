@@ -23,6 +23,7 @@
 
 import { absoluteTarballUrl, fileFromTarball } from './catalog-npm.ts'
 import { marketFetch } from './net.ts'
+import { registryFor } from './npmrc.ts'
 import { activeRegion, routesFor } from './regions.ts'
 import { profileDir, readGitResolutionCommit, readInstalled, readInstalledRepoEvidence, readInstalledVersion, readLockCommits } from './profile.ts'
 import { githubRepoOfRemote, hostedRepoKey, isGitHostedSpec, lookupRepoFromUrl, parseHostShorthand, parseSourceUrl, repoOf, repoOfTarget } from './sources.ts'
@@ -34,7 +35,7 @@ import { invalidateReleaseHistory, isCommitId, loadReleaseHistory, packageReleas
 const UPDATES_PACKAGE = 'dsh-plugin-updates'
 const UPDATES_FILE = 'package/updates.json'
 /** The origin copy sits beside plugins.json on the catalog host. */
-const ORIGIN_UPDATES = process.env.DSHM_UPDATES_ORIGIN ?? 'https://awesome-dsh-plugin.com/updates.json'
+const ORIGIN_UPDATES = process.env.DSHM_UPDATES_ORIGIN ?? 'https://dshcrate.com/updates.json'
 /** Notes are produced daily; re-checking hourly bounds staleness without churn. */
 const NOTES_TTL_MS = 60 * 60 * 1000
 const TIMEOUT_MS = 15_000
@@ -282,7 +283,7 @@ const TIMES_TTL_MS = 30 * 60 * 1000
 export async function npmPublishTimes(name: string): Promise<{ version: string; date: string }[]> {
   const hit = timesCache.get(name)
   if (hit !== undefined && Date.now() - hit.at < TIMES_TTL_MS) return hit.data
-  const registry = routesFor(activeRegion()).npmRegistry
+  const registry = registryFor(name, routesFor(activeRegion()).npmRegistry)
   const res = await marketFetch(`${registry}/${encodeURIComponent(name)}`, {
     signal: AbortSignal.timeout(TIMEOUT_MS),
     headers: { accept: 'application/json', 'user-agent': 'dsh-crate' },

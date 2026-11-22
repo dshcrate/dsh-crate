@@ -2,7 +2,7 @@
 /**
  * Pre-pack guard: every place that must carry the npm package name actually
  * does. Both 1.0.0 (bundle patch name) and 1.0.1 (client loader id) shipped
- * broken after the dsh-market → dshmarket rename because these are plain
+ * broken after the dsh-market → dsh-crate rename because these are plain
  * strings no compiler checks.
  *
  * Also keeps the Plugins-page artwork contract intact: DSH ≥ 0.1.7 reads

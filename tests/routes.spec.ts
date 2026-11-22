@@ -26,6 +26,11 @@ import { readMarketState, writeMarketState } from '../src/hot.ts'
 import { configurePersistentLog, readPersistentLog } from '../src/log.ts'
 import * as orderApi from '../src/order.ts'
 import * as registryApi from '../src/registry.ts'
+import * as catalogsApi from '../src/catalogs.ts'
+import * as policyApi from '../src/policy.ts'
+import { gzipSync } from 'node:zlib'
+// @ts-expect-error -- plain .mjs script, no types
+import { makeTar } from '../scripts/offline-pack.mjs'
 import * as netApi from '../src/net.ts'
 import { DiscoveryManifestIndex } from '../src/discovery-compatibility.ts'
 import type { PluginCommandRuntime } from '../src/dsh-cli.ts'
@@ -106,6 +111,8 @@ interface RequestOpts {
   body?: unknown
   /** Verbatim body bytes (malformed JSON / empty stream cases). */
   rawBody?: string
+  /** Binary body (an uploaded archive). */
+  rawBytes?: Buffer
   /** Peer address the download/restart fences read; loopback unless a test says otherwise. */
   remoteAddress?: string
 }
@@ -116,7 +123,8 @@ function makeRequest(opts: RequestOpts): IncomingMessage {
   if (opts.origin !== undefined) headers.origin = opts.origin
   if (opts.host !== undefined) headers.host = opts.host
   const chunks: Buffer[] = []
-  if (opts.rawBody !== undefined) chunks.push(Buffer.from(opts.rawBody))
+  if (opts.rawBytes !== undefined) chunks.push(opts.rawBytes)
+  else if (opts.rawBody !== undefined) chunks.push(Buffer.from(opts.rawBody))
   else if (opts.body !== undefined) chunks.push(Buffer.from(JSON.stringify(opts.body)))
   const request = {
     method: opts.method,
@@ -1589,5 +1597,289 @@ describe('anonymous usage count route', () => {
     const del = await hit(routes, '/dsh-crate/telemetry', { method: 'DELETE', url: '/dsh-crate/telemetry' })
     expect(del.status).toBe(405)
     expect(del.headers.allow).toBe('GET, POST')
+  })
+})
+
+// --- catalogs: the settings list, add and remove ------------------------------
+
+describe('plugin catalogs routes', () => {
+  const PRIVATE = {
+    updated: '2026-09-01',
+    label: 'Acme',
+    plugins: [{ name: 'badge', url: 'https://repo.acme/badge', category: 'hr', npm: '@acme/badge', description: 'Badge' }],
+  }
+  const catalogFile = (name = 'plugins.json', doc: unknown = PRIVATE): string => {
+    const path = join(tmp, name)
+    writeFileSync(path, typeof doc === 'string' ? doc : JSON.stringify(doc))
+    return path
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    delete process.env.DSH_CRATE_POLICY
+    policyApi.resetPolicyCache()
+    catalogsApi.setUserCatalogs([])
+  })
+
+  const policy = (doc: unknown): void => {
+    const path = join(tmp, 'policy.json')
+    writeFileSync(path, JSON.stringify(doc))
+    process.env.DSH_CRATE_POLICY = path
+    policyApi.resetPolicyCache()
+  }
+
+  it('reports nothing to load and offers adding, for someone who configured nothing', async () => {
+    const registry = vi.spyOn(registryApi, 'loadRegistry')
+    const res = await hit(routes, '/dsh-crate/catalogs', { method: 'GET', url: '/dsh-crate/catalogs' })
+    expect(res.status).toBe(200)
+    expect(jsonBody(res)).toMatchObject({ sources: [], userCatalogsAllowed: true, publicCatalog: { enabled: true, locked: false }, problems: [] })
+    // nothing is configured, so nothing is fetched just to draw the list
+    expect(registry).not.toHaveBeenCalled()
+  })
+
+  it('adds a catalog only after reading it once, saves it, and a second add of the same one is refused', async () => {
+    const file = catalogFile()
+    const added = await hit(routes, '/dsh-crate/catalogs/add', post('/dsh-crate/catalogs/add', { source: file }))
+    expect(added.status).toBe(200)
+    expect(jsonBody(added)).toMatchObject({ ok: true, count: 1, label: { en: 'Acme' } })
+    expect(readMarketState(dir).userCatalogs).toEqual([{ id: expect.stringMatching(/^user-/), file }])
+    const again = await hit(routes, '/dsh-crate/catalogs/add', post('/dsh-crate/catalogs/add', { source: file }))
+    expect(again.status).toBe(409)
+    expect(jsonBody(again).code).toBe('duplicate')
+    expect(readMarketState(dir).userCatalogs).toHaveLength(1)
+  })
+
+  it('saves nothing when the address cannot be read, and says why', async () => {
+    const missing = await hit(routes, '/dsh-crate/catalogs/add', post('/dsh-crate/catalogs/add', { source: join(tmp, 'nope.json') }))
+    expect(missing.status).toBe(400)
+    expect(jsonBody(missing)).toMatchObject({ ok: false, code: 'unreadable', source: { code: 'file' } })
+    const junk = await hit(routes, '/dsh-crate/catalogs/add', post('/dsh-crate/catalogs/add', { source: catalogFile('junk.json', 'not json') }))
+    expect(jsonBody(junk)).toMatchObject({ code: 'unreadable', source: { code: 'invalid' } })
+    expect(readMarketState(dir)).not.toHaveProperty('userCatalogs')
+  })
+
+  it('refuses addresses that are not an address, and web addresses that carry a password', async () => {
+    for (const [source, code] of [['', 'empty'], ['plugins.json', 'unrecognized'], ['https://u:p@x.example/p.json', 'credentials']] as const) {
+      const res = await hit(routes, '/dsh-crate/catalogs/add', post('/dsh-crate/catalogs/add', { source }))
+      expect(res.status).toBe(400)
+      expect(jsonBody(res).code).toBe(code)
+    }
+  })
+
+  it('stops at eight', async () => {
+    for (let index = 0; index < 8; index++) {
+      const res = await hit(routes, '/dsh-crate/catalogs/add', post('/dsh-crate/catalogs/add', { source: catalogFile(`c${String(index)}.json`) }))
+      expect(res.status).toBe(200)
+    }
+    const ninth = await hit(routes, '/dsh-crate/catalogs/add', post('/dsh-crate/catalogs/add', { source: catalogFile('c9.json') }))
+    expect(ninth.status).toBe(400)
+    expect(jsonBody(ninth)).toMatchObject({ code: 'limit', limit: 8 })
+  })
+
+  it('refuses adding while the organization forbids it', async () => {
+    policy({ userCatalogs: false })
+    const res = await hit(routes, '/dsh-crate/catalogs/add', post('/dsh-crate/catalogs/add', { source: catalogFile() }))
+    expect(res.status).toBe(403)
+    expect(jsonBody(res).code).toBe('locked')
+    expect(readMarketState(dir)).not.toHaveProperty('userCatalogs')
+    const list = await hit(routes, '/dsh-crate/catalogs', { method: 'GET', url: '/dsh-crate/catalogs' })
+    expect(jsonBody(list).userCatalogsAllowed).toBe(false)
+  })
+
+  it('removes a saved catalog, refuses an unknown one, and cannot remove what the organization set', async () => {
+    const file = catalogFile()
+    await hit(routes, '/dsh-crate/catalogs/add', post('/dsh-crate/catalogs/add', { source: file }))
+    const id = readMarketState(dir).userCatalogs![0]!.id
+    expect((await hit(routes, '/dsh-crate/catalogs/remove', post('/dsh-crate/catalogs/remove', { id: 'acme' }))).status).toBe(404)
+    policy({ catalogs: [{ id: 'acme', label: 'Acme', file }] })
+    expect((await hit(routes, '/dsh-crate/catalogs/remove', post('/dsh-crate/catalogs/remove', { id: 'acme' }))).status).toBe(404)
+    const removed = await hit(routes, '/dsh-crate/catalogs/remove', post('/dsh-crate/catalogs/remove', { id }))
+    expect(removed.status).toBe(200)
+    expect(readMarketState(dir)).not.toHaveProperty('userCatalogs')
+  })
+
+  it('lists each source with how it answered, and never a header or a token', async () => {
+    policy({ catalogs: [{ id: 'acme', label: 'Acme', url: 'https://plugins.acme.internal/p.json?key=QUERYSECRET', headers: { Authorization: 'Bearer HEADERSECRET' } }] })
+    vi.spyOn(registryApi, 'loadRegistry').mockResolvedValue({
+      updated: 'x', count: 1, categories: {}, plugins: [],
+      sources: [
+        { id: 'public', kind: 'public', label: { en: 'Public' }, where: '', status: 'ok', count: 5, skipped: 0, locked: false },
+        { id: 'acme', kind: 'policy', label: { en: 'Acme' }, where: 'plugins.acme.internal/p.json', status: 'failed', count: 0, skipped: 0, locked: true, error: { code: 'auth', detail: '401' } },
+      ],
+    })
+    const res = await hit(routes, '/dsh-crate/catalogs', { method: 'GET', url: '/dsh-crate/catalogs' })
+    expect(res.body).not.toContain('HEADERSECRET')
+    expect(res.body).not.toContain('QUERYSECRET')
+    expect((jsonBody(res).sources as Array<{ id: string }>).map(source => source.id)).toEqual(['public', 'acme'])
+  })
+
+  it('refuses cross-origin writes and the wrong method', async () => {
+    const cross = await hit(routes, '/dsh-crate/catalogs/add', { method: 'POST', url: '/x', origin: 'http://evil.example', host: HOST, body: { source: catalogFile() } })
+    expect(cross.status).toBe(403)
+    expect((await hit(routes, '/dsh-crate/catalogs/add', { method: 'GET', url: '/x' })).status).toBe(405)
+    expect((await hit(routes, '/dsh-crate/catalogs/remove', { method: 'GET', url: '/x' })).status).toBe(405)
+    expect((await hit(routes, '/dsh-crate/catalogs', { method: 'POST', url: '/x' })).status).toBe(405)
+    expect(readMarketState(dir)).not.toHaveProperty('userCatalogs')
+  })
+
+  it('answers a failed catalog load with the per-source reasons', async () => {
+    vi.spyOn(registryApi, 'loadRegistry').mockRejectedValue(new registryApi.CatalogLoadError('offline', [
+      { id: 'public', kind: 'public', label: { en: 'Public' }, where: '', status: 'failed', count: 0, skipped: 0, locked: false, error: { code: 'network', detail: 'x' } },
+    ]))
+    const res = await hit(routes, '/dsh-crate/registry', { method: 'GET', url: '/dsh-crate/registry' })
+    expect(res.status).toBe(502)
+    expect(jsonBody(res)).toMatchObject({ error: 'offline', sources: [{ id: 'public', status: 'failed' }] })
+  })
+})
+
+// --- offline bundles, and the switches an organization turns off --------------
+
+describe('offline bundle import', () => {
+  const bundle = (files: Array<{ name: string; data: Buffer }>): Buffer => gzipSync(makeTar(files))
+  const PLUGINS = { label: 'Acme bundle', plugins: [{ name: '@acme/badge', url: 'https://repo.acme.internal/tools/badge', category: 'hr', description: 'Badge', version: '1.0.0', tarball: './tarballs/acme-badge-1.0.0.tgz' }] }
+  const GOOD = (): Buffer => bundle([
+    { name: 'plugins.json', data: Buffer.from(JSON.stringify(PLUGINS)) },
+    { name: 'tarballs/acme-badge-1.0.0.tgz', data: Buffer.from('tarball bytes') },
+  ])
+  const importBundle = (body: Buffer, options: { origin?: string } = {}) => hit(routes, '/dsh-crate/offline/import', {
+    method: 'POST', url: '/dsh-crate/offline/import', origin: options.origin ?? ORIGIN, host: HOST, rawBytes: body,
+  })
+
+  afterEach(() => {
+    delete process.env.DSH_CRATE_POLICY
+    policyApi.resetPolicyCache()
+    catalogsApi.setUserCatalogs([])
+  })
+
+  it('unpacks the bundle under the market\'s own directory, saves it as a catalog and reports what is in it', async () => {
+    const res = await importBundle(GOOD())
+    expect(res.status, res.body).toBe(200)
+    expect(jsonBody(res)).toMatchObject({ ok: true, count: 1, label: { en: 'Acme bundle' } })
+    const saved = readMarketState(dir).userCatalogs!
+    expect(saved).toHaveLength(1)
+    const file = saved[0]!.file!
+    expect(file.startsWith(join(tmp, 'dsh-crate', 'offline'))).toBe(true)
+    expect(readFileSync(join(file, '..', 'tarballs', 'acme-badge-1.0.0.tgz'), 'utf8')).toBe('tarball bytes')
+  })
+
+  it('refuses a bundle that tries to leave its directory, and keeps nothing', async () => {
+    const evil = bundle([
+      { name: 'plugins.json', data: Buffer.from(JSON.stringify(PLUGINS)) },
+      { name: 'tarballs/../../escape.tgz', data: Buffer.from('x') },
+    ])
+    const res = await importBundle(evil)
+    expect(res.status).toBe(400)
+    expect(jsonBody(res)).toMatchObject({ ok: false, code: 'unsafe' })
+    expect(readMarketState(dir)).not.toHaveProperty('userCatalogs')
+    expect(existsSync(join(tmp, 'escape.tgz'))).toBe(false)
+    const offline = join(tmp, 'dsh-crate', 'offline')
+    expect(existsSync(offline) ? readdirSync(offline) : []).toEqual([])
+  })
+
+  it('refuses something that is not a bundle, and a bundle whose catalog cannot be read', async () => {
+    const junk = await importBundle(Buffer.from('not an archive'))
+    expect(junk.status).toBe(400)
+    expect(jsonBody(junk).code).toBe('not-archive')
+    const noCatalog = await importBundle(bundle([{ name: 'plugins.json', data: Buffer.from('{ nope') }]))
+    expect(noCatalog.status).toBe(400)
+    expect(jsonBody(noCatalog)).toMatchObject({ code: 'unreadable', source: { code: 'invalid' } })
+    // the unreadable one was removed again
+    const offline = join(tmp, 'dsh-crate', 'offline')
+    expect(existsSync(offline) ? readdirSync(offline) : []).toEqual([])
+    expect(readMarketState(dir)).not.toHaveProperty('userCatalogs')
+  })
+
+  it('is refused while the organization forbids adding catalogs, from another origin, and with the wrong method', async () => {
+    const policyPath = join(tmp, 'policy.json')
+    writeFileSync(policyPath, JSON.stringify({ userCatalogs: false }))
+    process.env.DSH_CRATE_POLICY = policyPath
+    policyApi.resetPolicyCache()
+    const locked = await importBundle(GOOD())
+    expect(locked.status).toBe(403)
+    expect(jsonBody(locked).code).toBe('locked')
+    delete process.env.DSH_CRATE_POLICY
+    policyApi.resetPolicyCache()
+    expect((await importBundle(GOOD(), { origin: 'http://evil.example' })).status).toBe(403)
+    expect((await hit(routes, '/dsh-crate/offline/import', { method: 'GET', url: '/x' })).status).toBe(405)
+    expect(readMarketState(dir)).not.toHaveProperty('userCatalogs')
+  })
+
+  it('removing an imported bundle deletes its files', async () => {
+    await importBundle(GOOD())
+    const saved = readMarketState(dir).userCatalogs![0]!
+    const bundleDir = join(saved.file!, '..')
+    expect(existsSync(bundleDir)).toBe(true)
+    const res = await hit(routes, '/dsh-crate/catalogs/remove', post('/dsh-crate/catalogs/remove', { id: saved.id }))
+    expect(res.status).toBe(200)
+    expect(existsSync(bundleDir)).toBe(false)
+  })
+
+  it('removing a catalog that is the user\'s own file never deletes that file\'s directory', async () => {
+    const mine = join(tmp, 'mine')
+    mkdirSync(mine)
+    const file = join(mine, 'plugins.json')
+    writeFileSync(file, JSON.stringify(PLUGINS.plugins.length > 0 ? { plugins: [{ ...PLUGINS.plugins[0], tarball: undefined }] } : {}))
+    const added = await hit(routes, '/dsh-crate/catalogs/add', post('/dsh-crate/catalogs/add', { source: file }))
+    expect(added.status).toBe(200)
+    const id = readMarketState(dir).userCatalogs![0]!.id
+    await hit(routes, '/dsh-crate/catalogs/remove', post('/dsh-crate/catalogs/remove', { id }))
+    expect(existsSync(file)).toBe(true)
+  })
+})
+
+describe('what the organization turned off, as the routes report it', () => {
+  const policy = (doc: unknown): void => {
+    const path = join(tmp, 'policy.json')
+    writeFileSync(path, JSON.stringify(doc))
+    process.env.DSH_CRATE_POLICY = path
+    policyApi.resetPolicyCache()
+  }
+  afterEach(() => {
+    vi.restoreAllMocks()
+    delete process.env.DSH_CRATE_POLICY
+    policyApi.resetPolicyCache()
+  })
+
+  it('locks the anonymous count: reported off and locked, and the switch refuses to move', async () => {
+    policy({ telemetry: false })
+    const status = await hit(routes, '/dsh-crate/status', { method: 'GET', url: '/dsh-crate/status' })
+    expect(jsonBody(status)).toMatchObject({ anonymousCount: false, anonymousCountLocked: true })
+    const read = await hit(routes, '/dsh-crate/telemetry', { method: 'GET', url: '/dsh-crate/telemetry' })
+    expect(jsonBody(read)).toEqual({ enabled: false, locked: true })
+    const write = await hit(routes, '/dsh-crate/telemetry', post('/dsh-crate/telemetry', { enabled: true }))
+    expect(write.status).toBe(403)
+    expect(jsonBody(write).code).toBe('locked')
+  })
+
+  it('leaves the count as the user set it when there is no such policy', async () => {
+    const status = await hit(routes, '/dsh-crate/status', { method: 'GET', url: '/dsh-crate/status' })
+    expect(jsonBody(status)).toMatchObject({ anonymousCountLocked: false })
+    const write = await hit(routes, '/dsh-crate/telemetry', post('/dsh-crate/telemetry', { enabled: false }))
+    expect(write.status).toBe(200)
+  })
+
+  it('tells the page which switches are off, and only those', async () => {
+    const catalog = { updated: 'u', count: 0, categories: {}, plugins: [] }
+    vi.spyOn(registryApi, 'loadRegistry').mockResolvedValue(catalog)
+    const plain = await hit(routes, '/dsh-crate/registry', { method: 'GET', url: '/dsh-crate/registry' })
+    expect(jsonBody(plain)).not.toHaveProperty('policy')
+    policy({ comments: false, externalImages: false })
+    const restricted = await hit(routes, '/dsh-crate/registry', { method: 'GET', url: '/dsh-crate/registry' })
+    expect(jsonBody(restricted).policy).toEqual({ externalImages: false, comments: false })
+  })
+
+  it('never tells the page where a bundle\'s package file sits on this machine', async () => {
+    const entry = { name: 'a', owner: '', url: 'https://repo.acme.internal/a', category: 'x', description: {}, install: 'a', added: '', npm: null, source: { id: 's', label: { en: 's' } }, offlineTarball: '/home/u/.dsh/dsh-crate/offline/offline-1/tarballs/a-1.0.0.tgz' }
+    vi.spyOn(registryApi, 'loadRegistry').mockResolvedValue({ updated: 'u', count: 1, categories: {}, plugins: [entry] })
+    const res = await hit(routes, '/dsh-crate/registry', { method: 'GET', url: '/dsh-crate/registry' })
+    expect(res.body).not.toContain('offlineTarball')
+    expect(res.body).not.toContain('/home/u')
+    expect((jsonBody(res).registry as { plugins: Array<{ name: string }> }).plugins[0]!.name).toBe('a')
+  })
+
+  it('reports a GitHub route fixed by policy, so the settings row can say who set it', async () => {
+    policy({ mirrors: { githubProxy: 'https://gh.acme.internal/proxy' } })
+    const status = await hit(routes, '/dsh-crate/status', { method: 'GET', url: '/dsh-crate/status' })
+    expect(jsonBody(status)).toMatchObject({ githubProxyManaged: true, githubProxyByPolicy: true })
   })
 })

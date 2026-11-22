@@ -1,5 +1,5 @@
 /**
- * Access to the curated list from awesome-dsh-plugin.com. Each new load
+ * Access to the curated list from dshcrate.com. Each new load
  * revalidates the catalog with its source.
  */
 
@@ -10,6 +10,9 @@ import { catalogFromPackage } from './catalog-npm.ts'
 import { asCrateRegistry, isCrateCatalog } from './crate-catalog.ts'
 import { activeRegion, catalogSourcesFor, routesFor, type CatalogSource, type Region } from './regions.ts'
 import { NPM_NAME_RE } from './sources.ts'
+import {
+  catalogConfig, forgetExtraCatalogs, loadExtra, mergeSources, PUBLIC_LABEL, type ExtraResult, type SourceInfo,
+} from './catalogs.ts'
 
 /**
  * How long a successful catalog load may take before it leaves a line behind.
@@ -58,7 +61,7 @@ export interface RegistryPlugin {
   /** When the source checked this statistic; never the client's fetch time. */
   downloadsCheckedAt?: string | null
   /**
-   * Registry `dist-tags.latest` from awesome-dsh-plugin (#348). A string when
+   * Registry `dist-tags.latest` from dshcrate (#348). A string when
    * known; `null`/absent when github-only or not yet backfilled — the UI
    * omits the byline segment rather than showing a placeholder.
    */
@@ -73,7 +76,30 @@ export interface RegistryPlugin {
   install: string
   added: string
   /**
-   * Catalog-side deprecation flags (#60): supplied by awesome-dsh-plugin,
+   * Which catalog this entry came from. Present ONLY on entries from a
+   * catalog the organization or the user added; the public catalog's entries
+   * carry none, so a plain install looks exactly as it always did. Stamped by
+   * the market after merging, never taken from a catalog's own text.
+   */
+  source?: { id: string; label: Record<string, string> }
+  /**
+   * Internal repository to install from (`git+https://…#ref`, `git+ssh://…`).
+   * Honored only on an entry from an added catalog — the market stamps
+   * `source` itself — and never taken from a request.
+   */
+  git?: string
+  /**
+   * Absolute path of a package file that ships with an offline bundle. Set by
+   * the market while reading a file catalog, after checking it lies inside
+   * that catalog's own directory; a catalog's own text cannot set it.
+   */
+  offlineTarball?: string
+  /** The version an administrator's policy fixed this entry to. */
+  pinned?: string
+  /** Curated screenshot URLs. */
+  screenshots?: string[]
+  /**
+   * Catalog-side deprecation flags (#60): supplied by dshcrate,
    * absent for every normal entry — the market only consumes them, so a
    * catalog without the fields behaves exactly as before.
    */
@@ -136,6 +162,8 @@ export interface Registry {
   count: number
   categories: Record<string, Record<string, string>>
   plugins: RegistryPlugin[]
+  /** Per-source status; present only when more than the public catalog is configured. */
+  sources?: SourceInfo[]
 }
 
 /**
@@ -232,9 +260,6 @@ function sourceKey(source: CatalogSource): string {
  *
  * crate 的载荷带 `entries`，上游目录带 `plugins`；两套结构各自校验，
  * 夹具与真实数据都不会误入对方的分支。
- *
- * @param value - 已经 `JSON.parse` 过的目录载荷。
- * @throws 两个适配器都可能因为数据不可用而抛出，异常留给调用方重试。
  */
 function parseCatalog(value: unknown): Registry {
   return isCrateCatalog(value) ? asCrateRegistry(value) : asRegistry(value)
@@ -266,6 +291,9 @@ function asRegistry(value: unknown): Registry {
 export function forgetCatalog(): void {
   served = null
   pendingCatalog = null
+  pendingMerged = null
+  lastMerged = null
+  forgetExtraCatalogs()
   catalogRevision += 1
 }
 
@@ -290,7 +318,7 @@ export function forgetCatalog(): void {
  * would rebuild exactly the fallback this replaced.
  * @throws when the catalog cannot be fetched or does not look like one.
  */
-export function loadRegistry(region: Region = activeRegion()): Promise<Registry> {
+function loadPublicCatalog(region: Region): Promise<Registry> {
   const ownSources = routesFor(region).catalog.length
   const catalogSources = catalogSourcesFor(region)
   const key = JSON.stringify([region, ownSources, catalogSources.map(sourceKey)])
@@ -302,6 +330,90 @@ export function loadRegistry(region: Region = activeRegion()): Promise<Registry>
   })
   pendingCatalog = { key, result }
   return result
+}
+
+/** Every source failed (or the only one did): the message for the page, and what each source said. */
+export class CatalogLoadError extends Error {
+  readonly sources: SourceInfo[]
+  constructor(message: string, sources: SourceInfo[]) {
+    super(message)
+    this.name = 'CatalogLoadError'
+    this.sources = sources
+  }
+}
+
+let pendingMerged: { key: string; result: Promise<Registry> } | null = null
+/** The last merge, reused while none of its inputs changed (callers key caches on the object). */
+let lastMerged: { inputs: unknown[]; allow: string; out: Registry } | null = null
+
+/**
+ * The catalog, revalidated on each new load: the public catalog plus whatever
+ * the organization's policy and the user added.
+ *
+ * With nothing configured this IS {@link loadPublicCatalog} — the same
+ * requests, the same object — which is the promise that a user with no policy
+ * and no extra catalogs sees no change. Otherwise every source is read on its
+ * own, in parallel: one that fails costs the user that source and is reported
+ * in `sources`, never the others.
+ * @throws when nothing could be loaded; {@link CatalogLoadError} carries the per-source detail.
+ */
+export function loadRegistry(region: Region = activeRegion()): Promise<Registry> {
+  const config = catalogConfig()
+  if (!config.active) return loadPublicCatalog(region)
+  const key = JSON.stringify([region, config.signature])
+  if (pendingMerged?.key === key) return pendingMerged.result
+  const result = loadMerged(region, config).finally(() => {
+    if (pendingMerged?.result === result) pendingMerged = null
+  })
+  pendingMerged = { key, result }
+  return result
+}
+
+async function loadMerged(region: Region, config: ReturnType<typeof catalogConfig>): Promise<Registry> {
+  const publicLoad: Promise<{ registry: Registry } | { error: unknown }> | null = config.publicEnabled
+    ? loadPublicCatalog(region).then(registry => ({ registry }), (error: unknown) => ({ error }))
+    : null
+  const extras: ExtraResult[] = await Promise.all(config.extras.map(source => loadExtra(source)))
+  const publicResult = publicLoad === null ? null : await publicLoad
+  const publicRegistry = publicResult !== null && 'registry' in publicResult ? publicResult.registry : null
+  const publicInfo: SourceInfo = {
+    id: 'public',
+    kind: 'public',
+    label: PUBLIC_LABEL,
+    where: '',
+    status: publicResult === null ? 'off' : publicRegistry !== null ? 'ok' : 'failed',
+    count: publicRegistry?.plugins.length ?? 0,
+    skipped: 0,
+    locked: config.policy.publicCatalog === false,
+    ...(publicResult !== null && 'error' in publicResult
+      ? { error: { code: 'network' as const, detail: (publicResult.error instanceof Error ? publicResult.error.message : String(publicResult.error)).slice(0, 400) } }
+      : {}),
+  }
+  const loaded = extras.filter(extra => extra.registry !== null)
+  if (publicRegistry === null && loaded.length === 0) {
+    const sources = [...(publicResult === null ? [] : [publicInfo]), ...extras.map(extra => extra.info)]
+    // The public catalog's own explanation reads best when it is the only
+    // source there is; otherwise name the first thing that broke.
+    const message = publicResult !== null && 'error' in publicResult && config.extras.length === 0
+      ? (publicResult.error instanceof Error ? publicResult.error.message : String(publicResult.error))
+      : sources.map(source => `${source.id}: ${source.error?.code ?? 'off'}${source.error?.detail ? ` ${source.error.detail}` : ''}`).join(' · ')
+    throw new CatalogLoadError(message === '' ? 'no catalog is available' : message, sources)
+  }
+  const inputs: unknown[] = [publicRegistry, ...extras.map(extra => extra.registry)]
+  const stamp = JSON.stringify([config.policy.allow, config.policy.pins, publicInfo, extras.map(extra => extra.info)])
+  if (lastMerged !== null && lastMerged.allow === stamp
+    && lastMerged.inputs.length === inputs.length && lastMerged.inputs.every((value, index) => value === inputs[index])) {
+    return lastMerged.out
+  }
+  const out = mergeSources({
+    publicRegistry,
+    publicInfo: publicResult === null ? null : publicInfo,
+    extras,
+    allow: config.policy.allow,
+    pins: config.policy.pins,
+  })
+  lastMerged = { inputs, allow: stamp, out }
+  return out
 }
 
 async function fetchCatalog(region: Region, ownSources: number, catalogSources: CatalogSource[], revision: number): Promise<Registry> {

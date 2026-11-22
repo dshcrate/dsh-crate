@@ -50,7 +50,7 @@ async function waitHostFilterQuiet(page: Page): Promise<void> {
   }, undefined, { timeout: 120_000 })
 }
 
-describe.skipIf(!HAS_DSH)('web e2e: plugin market', () => {
+describe.skipIf(!HAS_DSH)('web e2e: plugin crate', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page

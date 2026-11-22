@@ -177,7 +177,7 @@ describe('loadRegistry', () => {
     // a market showing zero plugins and a market that could not reach the
     // registry are different situations, and only one of them is the user's
     // to act on. Silence would report the wrong one.
-    scriptedFetch(new Error('getaddrinfo ENOTFOUND awesome-dsh-plugin.com'))
+    scriptedFetch(new Error('getaddrinfo ENOTFOUND dshcrate.com'))
     await expect(loadRegistry()).rejects.toThrow(/ENOTFOUND/)
   })
 
@@ -439,7 +439,7 @@ describe('loadRegistry revalidation', () => {
     scriptedFetch(okTagged(CATALOG, 'W/"abc"'))
     await loadRegistry()
 
-    scriptedFetch(new Error('getaddrinfo ENOTFOUND awesome-dsh-plugin.com'))
+    scriptedFetch(new Error('getaddrinfo ENOTFOUND dshcrate.com'))
     await expect(loadRegistry()).rejects.toThrow(/ENOTFOUND/)
   })
 
@@ -647,7 +647,7 @@ describe('marketFetch', () => {
       .mockRejectedValueOnce(new TypeError('fetch failed'))
       .mockResolvedValueOnce(new Response('ok', { status: 200 }))
 
-    const res = await marketFetch('https://awesome-dsh-plugin.com/plugins.json')
+    const res = await marketFetch('https://dshcrate.com/plugins.json')
 
     expect(await res.text()).toBe('ok')
     expect(undici.fetch).toHaveBeenCalledTimes(2)

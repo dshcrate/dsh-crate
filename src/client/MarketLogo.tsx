@@ -79,8 +79,8 @@ export function MarketLogo({ size = 16, style, animated = false, ambient = false
 }
 
 /**
- * GitHub mark beside catalog card titles (#256, #365). Catalog intake in
- * awesome-dsh-plugin rejects any entry whose `url` is not
+ * GitHub mark beside catalog card titles (#256, #365). Catalog intake
+ * rejects any entry whose `url` is not
  * `https://github.com/owner/repo` (scripts/lib/entries.mjs), so this renders
  * unconditionally — not a bet that today's snapshot happens to be all
  * GitHub. The generic outbound arrow did not say so until hover. This rides

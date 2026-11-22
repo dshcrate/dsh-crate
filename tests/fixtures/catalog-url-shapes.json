@@ -1,6 +1,6 @@
 {
  "note": "distinct URL shapes from the live catalog; see tests/client/comments.client.spec.ts",
- "source": "https://awesome-dsh-plugin.com/plugins.json",
+ "source": "https://dshcrate.com/plugins.json",
  "captured": "2026-09-08",
  "shapes": 108,
  "urls": [

@@ -36,7 +36,7 @@ beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'dsh-crate-spawn-'))
   vi.stubEnv('DSH_HOME', home)
   vi.stubEnv('ComSpec', 'cmd.exe')
-  vi.stubEnv('DSH_MARKET_INSTALL_TIMEOUT_MS', '1000')
+  vi.stubEnv('DSH_CRATE_INSTALL_TIMEOUT_MS', '1000')
   process.argv = [process.execPath, 'desktop-host.js']
   process.execArgv = []
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })

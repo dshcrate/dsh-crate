@@ -244,6 +244,8 @@ export declare function latestPublishedRecently(name: string, windowMs?: number)
  */
 export declare function versionOnChannel(name: string, channel: Channel, stable: string | null): Promise<string | null>;
 export declare function fetchNpmLatest(name: string): Promise<string | null>;
+/** What the registry itself calls `latest`, whatever a pin says (the desktop path checks the registry's identity against it). */
+export declare function fetchRegistryLatest(name: string): Promise<string | null>;
 /**
  * The newest build above `installed` that some tag other than `latest`
  * points at, or null (#867).

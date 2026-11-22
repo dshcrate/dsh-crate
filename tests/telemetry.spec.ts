@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { resetPolicyCache } from '../src/policy.ts'
 import { readTelemetryState, sendHeartbeat, sendOpened, setTelemetryEnabled, suppressedBy, telemetryFile, TELEMETRY_URL, type HeartbeatOptions } from '../src/telemetry.ts'
 
 const dirs: string[] = []
@@ -27,15 +28,7 @@ describe('anonymous usage count', () => {
     expect(telemetryFile('/h/.dsh')).toBe(join('/h/.dsh', 'dsh-crate', 'telemetry.json'))
   })
 
-  it('is on by default and sends without opting in', async () => {
-    const { options, fetch, file } = setup()
-    expect(readTelemetryState(file)).toEqual({ enabled: true })
-    expect(await sendHeartbeat(options)).toBe('sent')
-    expect(fetch).toHaveBeenCalledTimes(1)
-    expect(JSON.parse(readFileSync(file, 'utf8')).enabled).toBe(true)
-  })
-
-  it('sends exactly five fields to the endpoint', async () => {
+  it('sends exactly five fields for the daily count', async () => {
     const { options, fetch, file } = setup()
     expect(await sendHeartbeat(options)).toBe('sent')
     const [url, init] = fetch.mock.calls[0] as [string, { method: string; body: string }]
@@ -150,5 +143,37 @@ describe('anonymous usage count', () => {
     setTelemetryEnabled(true, file)
     writeFileSync(file, '{nope')
     expect(readTelemetryState(file)).toEqual({ enabled: true })
+  })
+})
+
+describe('anonymous usage count under an organization policy', () => {
+  const withPolicy = (doc: unknown): void => {
+    const dir = mkdtempSync(join(tmpdir(), 'dshm-telemetry-policy-'))
+    dirs.push(dir)
+    const file = join(dir, 'policy.json')
+    writeFileSync(file, JSON.stringify(doc))
+    vi.stubEnv('DSH_CRATE_POLICY', file)
+    resetPolicyCache()
+  }
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    resetPolicyCache()
+  })
+
+  it('sends nothing, for the daily count and for the opened mark, even when the user left it on', async () => {
+    withPolicy({ telemetry: false })
+    const { options, fetch } = setup()
+    expect(suppressedBy({})).toBe('organization policy')
+    expect(await sendHeartbeat(options)).toBe('skipped')
+    expect(await sendOpened(options)).toBe('skipped')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('changes nothing for a policy that says nothing about it, or says true', async () => {
+    withPolicy({ telemetry: true })
+    const { options, fetch } = setup()
+    expect(suppressedBy({})).toBeNull()
+    expect(await sendHeartbeat(options)).toBe('sent')
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

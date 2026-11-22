@@ -16,7 +16,7 @@
  * - On Node 25, `setGlobalDispatcher` from the undici package does not
  *   steer global fetch. With a dispatcher installed that way, a global
  *   fetch produced no CONNECT at a local proxy, while undici's own fetch
- *   produced `CONNECT awesome-dsh-plugin.com:443`.
+ *   produced `CONNECT dshcrate.com:443`.
  * - On Node 22 the two stacks share one symbol (#742). Global fetch reads
  *   `Symbol.for('undici.globalDispatcher.1')`. The host's first import of
  *   undici 8 (`web_fetch`) finds `.2` empty, installs its dispatcher, and
@@ -86,7 +86,7 @@ export declare function configuredProxy(): string | null;
  * through this module's own agent when it has none. Both paths pass the
  * dispatcher described on this module.
  */
-export declare function marketFetch(url: string, init?: {
+export declare function marketFetch(url: string, given?: {
     signal?: AbortSignal;
     headers?: Record<string, string>;
     method?: 'GET' | 'HEAD' | 'POST';

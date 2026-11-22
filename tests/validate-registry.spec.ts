@@ -34,7 +34,7 @@ const entry = (name: string, npmName: string, previousNpm?: unknown) => ({
   category: 'tool',
   npm: npmName,
   ...(previousNpm === undefined ? {} : { previousNpm }),
-  page: `https://awesome-dsh-plugin.com/p/${name}/`,
+  page: `https://dshcrate.com/p/${name}/`,
   description: { en: name, zh: name },
   stars: 0,
   install: `dsh plugin --profile web add ${npmName}`,

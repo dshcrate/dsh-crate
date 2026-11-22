@@ -13,7 +13,7 @@
  *   E5  url is a github repo or tree(subpath) url
  *   E6  owner field matches the owner parsed from url
  *   E7  category is in the declared whitelist (top-level `categories`)
- *   E8  page is an awesome-dsh-plugin.com/p/ url
+ *   E8  page is an dshcrate.com/p/ url
  *   E9  added is a YYYY-MM-DD date not in the future
  *   E10 install command references the entry's real target (npm name,
  *       github:owner/repo[+ #path:], or a release archive under that same repo)
@@ -32,7 +32,7 @@
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-const CATALOG_URL = process.env.DSHM_REGISTRY_URL ?? 'https://awesome-dsh-plugin.com/plugins.json'
+const CATALOG_URL = process.env.DSHM_REGISTRY_URL ?? 'https://dshcrate.com/data/dsh-crate.json'
 const SNAPSHOT = fileURLToPath(new URL('../data/registry-snapshot.json', import.meta.url))
 
 /** CI specifies a fixture and Site health specifies its download. With no
@@ -62,7 +62,7 @@ async function loadCatalog() {
 const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 // repo root, or a /tree/<branch>/<subpath> monorepo subpackage.
 const GITHUB_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)(\/tree\/[^/]+\/(.+))?$/
-const PAGE_RE = /^https:\/\/awesome-dsh-plugin\.com\/p\//
+const PAGE_RE = /^https:\/\/dshcrate\.com\/p\//
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const INSTALL_RE = /^dsh plugin --profile \S+ add (.+)$/
 
@@ -168,7 +168,7 @@ async function main() {
 
     // E8 — page url
     if (typeof p.page !== 'string' || !PAGE_RE.test(p.page)) {
-      fail(errors, p, 'E8', `page is not an awesome-dsh-plugin url: ${p.page}`)
+      fail(errors, p, 'E8', `page is not an dshcrate url: ${p.page}`)
     }
 
     // E9 — added date, not future

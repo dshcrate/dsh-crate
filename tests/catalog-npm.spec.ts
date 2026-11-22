@@ -93,7 +93,7 @@ describe('catalogFromPackage', () => {
   } = {}): void {
     requested = []
     const version = options.version ?? '2026.8.22'
-    const tarballUrl = `${options.tarballHost ?? REGISTRY}/awesome-dsh-plugin/-/awesome-dsh-plugin-${version}.tgz`
+    const tarballUrl = `${options.tarballHost ?? REGISTRY}/dshcrate/-/dshcrate-${version}.tgz`
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
       const url = String(input)
       requested.push(url)
@@ -112,7 +112,7 @@ describe('catalogFromPackage', () => {
 
   it('reads the catalog and reports the version it came from', async () => {
     stub()
-    await expect(catalogFromPackage(REGISTRY, 'awesome-dsh-plugin')).resolves
+    await expect(catalogFromPackage(REGISTRY, 'dshcrate')).resolves
       .toEqual({ version: '2026.8.22', data: CATALOG })
   })
 
@@ -121,14 +121,14 @@ describe('catalogFromPackage', () => {
     // a mirror rewrites the field to its own host. Composing a URL from the
     // package name would send the download back to registry.npmjs.org.
     stub({ tarballHost: 'https://mirror.test/npm' })
-    await catalogFromPackage(REGISTRY, 'awesome-dsh-plugin')
+    await catalogFromPackage(REGISTRY, 'dshcrate')
     expect(requested[1]).toContain('mirror.test')
     expect(requested[1]).not.toContain('registry.npmjs.org')
   })
 
   it('skips the download when the published version is the one already held', async () => {
     stub({ version: '2026.8.22' })
-    const result = await catalogFromPackage(REGISTRY, 'awesome-dsh-plugin', '2026.8.22')
+    const result = await catalogFromPackage(REGISTRY, 'dshcrate', '2026.8.22')
     expect(result).toEqual({ version: '2026.8.22', data: null })
     // Metadata only. Re-fetching a package we already hold would give back
     // most of the bytes this route exists to save.
@@ -137,7 +137,7 @@ describe('catalogFromPackage', () => {
 
   it('downloads when the published version has moved on', async () => {
     stub({ version: '2026.8.23' })
-    const result = await catalogFromPackage(REGISTRY, 'awesome-dsh-plugin', '2026.8.22')
+    const result = await catalogFromPackage(REGISTRY, 'dshcrate', '2026.8.22')
     expect(result.data).toEqual(CATALOG)
     expect(requested).toHaveLength(2)
   })
@@ -178,7 +178,7 @@ describe('catalogFromPackage', () => {
         }
         return new Response(body)
       }))
-      const result = catalogFromPackage(REGISTRY, 'awesome-dsh-plugin')
+      const result = catalogFromPackage(REGISTRY, 'dshcrate')
       await vi.advanceTimersByTimeAsync(36_000)
       await expect(result).resolves.toEqual({ version, data: CATALOG })
     } finally { vi.useRealTimers() }
@@ -202,8 +202,8 @@ describe('catalogFromPackage', () => {
         }
         return new Response(body)
       }))
-      const result = catalogFromPackage(REGISTRY, 'awesome-dsh-plugin')
-      const settled = expect(result).rejects.toThrow(/no new data for 15s while downloading awesome-dsh-plugin tarball \(received \d+ bytes\)/u)
+      const result = catalogFromPackage(REGISTRY, 'dshcrate')
+      const settled = expect(result).rejects.toThrow(/no new data for 15s while downloading dshcrate tarball \(received \d+ bytes\)/u)
       await vi.advanceTimersByTimeAsync(16_000)
       await settled
     } finally { vi.useRealTimers() }
@@ -216,13 +216,13 @@ describe('catalogFromPackage', () => {
   ] as const) {
     it(`throws so the caller can fall back when ${label}`, async () => {
       stub(options)
-      await expect(catalogFromPackage(REGISTRY, 'awesome-dsh-plugin')).rejects.toThrow()
+      await expect(catalogFromPackage(REGISTRY, 'dshcrate')).rejects.toThrow()
     })
   }
 
   it('throws when the metadata names no tarball at all', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ version: '1.0.0' }), { status: 200 })))
-    await expect(catalogFromPackage(REGISTRY, 'awesome-dsh-plugin')).rejects.toThrow(/no version or tarball/)
+    await expect(catalogFromPackage(REGISTRY, 'dshcrate')).rejects.toThrow(/no version or tarball/)
   })
 
   /**
@@ -241,7 +241,7 @@ describe('catalogFromPackage', () => {
       }
       return new Response(tarballFixture(), { status: 200 })
     }))
-    await expect(catalogFromPackage('http://npm.example.internal/npm', 'awesome-dsh-plugin'))
+    await expect(catalogFromPackage('http://npm.example.internal/npm', 'dshcrate'))
       .resolves.toEqual({ version: '2026.8.22', data: CATALOG })
     return requested[1]!
   }
@@ -251,13 +251,13 @@ describe('catalogFromPackage', () => {
   }
 
   it('resolves a root-relative dist.tarball against the registry host (#1117)', async () => {
-    expect(await relativeTarball('/awesome-dsh-plugin/-/awesome-dsh-plugin-2026.8.22.tgz'))
-      .toBe('http://npm.example.internal/awesome-dsh-plugin/-/awesome-dsh-plugin-2026.8.22.tgz')
+    expect(await relativeTarball('/dshcrate/-/dshcrate-2026.8.22.tgz'))
+      .toBe('http://npm.example.internal/dshcrate/-/dshcrate-2026.8.22.tgz')
   })
 
   it('resolves a path with no leading slash under the registry prefix (#1117)', async () => {
-    expect(await relativeTarball('awesome-dsh-plugin/-/awesome-dsh-plugin-2026.8.22.tgz'))
-      .toBe('http://npm.example.internal/npm/awesome-dsh-plugin/-/awesome-dsh-plugin-2026.8.22.tgz')
+    expect(await relativeTarball('dshcrate/-/dshcrate-2026.8.22.tgz'))
+      .toBe('http://npm.example.internal/npm/dshcrate/-/dshcrate-2026.8.22.tgz')
   })
 
   it('leaves an absolute dist.tarball exactly as the registry wrote it (#1117)', async () => {

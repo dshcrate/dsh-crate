@@ -48,7 +48,7 @@ describe('CommentsModal', () => {
     const link = screen.getByRole('link', { name: en.commentsOnGitHub })
     const href = new URL(link.getAttribute('href')!)
     expect(href.origin + href.pathname).toBe(
-      'https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/discussions',
+      'https://github.com/dshcrate/dsh-crate/discussions',
     )
     expect(href.searchParams.get('discussions_q')).toBe('"plugin:alice/dsh-loop"')
     expect(href.href).not.toContain('local-host-secret')
@@ -65,7 +65,7 @@ describe('CommentsModal', () => {
     expect(s.dataset.mapping).toBe('specific')
     // Without strict, `alice/dsh-loop` and `alice/dsh-loop--x` can collide.
     expect(s.dataset.strict).toBe('1')
-    expect(s.dataset.repo).toBe('awesome-dsh-plugin/awesome-dsh-plugin')
+    expect(s.dataset.repo).toBe('dshcrate/dsh-crate')
   })
 
   it('qualifies a plugin that lives in a subdirectory', async () => {

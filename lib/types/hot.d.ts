@@ -18,6 +18,7 @@
 import { type UpdateCheckIntervalHours } from './update-notification-settings.ts';
 import { type Channel } from './channels.ts';
 import { type Region } from './regions.ts';
+import { type UserCatalog } from './catalogs.ts';
 interface HotRow {
     id: string;
     name: string;
@@ -191,6 +192,14 @@ export interface MarketState {
      * pre-install list, unlike groups/notes which target installed packages.
      */
     favorites?: string[];
+    /**
+     * Extra catalogs the user added in the settings card: a URL or an absolute
+     * file path each, nothing secret. Optional on the way in like `favorites`
+     * (omitted means "the caller has nothing to say"); an explicit empty list
+     * is how the last one is removed. Ignored while the policy sets
+     * `userCatalogs: false`.
+     */
+    userCatalogs?: UserCatalog[];
     /**
      * Package names the user hid from Discover and Themes (#657).
      *

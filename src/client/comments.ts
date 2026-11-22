@@ -2,7 +2,7 @@
  * giscus wiring for the in-market comment thread.
  *
  * A plugin has ONE discussion, whether the reader reached it from
- * dshcrate.com, from the awesome-dsh-plugin catalog, or from inside the
+ * dshcrate.com, from the dshcrate catalog, or from inside the
  * market itself. That is only true as long as three things agree across the
  * three surfaces: the repository ids below, the `plugin:<slug>` term, and the
  * slug those terms are built from. The ids here mirror site/comments.mjs and
@@ -13,10 +13,10 @@
  */
 
 export const GISCUS = Object.freeze({
-  repo: 'awesome-dsh-plugin/awesome-dsh-plugin',
-  repoId: 'R_kgDOT3ajCQ',
-  category: 'Plugins',
-  categoryId: 'DIC_kwDOT3ajCc4DES8_',
+  repo: 'dshcrate/dsh-crate',
+  repoId: 'R_kgDOVeu1VA',
+  category: 'Announcements',
+  categoryId: 'DIC_kwDOVeu1VM4DLuXo',
 })
 
 /**

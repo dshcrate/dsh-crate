@@ -839,6 +839,7 @@ import { PendingCheckoutLinks } from '../src/pending-checkout-links.ts'
 import * as checkoutLocks from '../src/pending-checkout-links.ts'
 import { readPersistentLog } from '../src/log.ts'
 import { routesFor } from '../src/regions.ts'
+import { resetPolicyCache } from '../src/policy.ts'
 import { setRequestGateSource, setTrustedHostsSource } from '../src/http.ts'
 import * as hotModule from '../src/hot.ts'
 import type { AgentsServiceLike } from '../src/agents.ts'
@@ -2248,6 +2249,120 @@ describe('install flow', () => {
     expect(outside.status).toBe(400)
     const cross = await bed.dispatch('POST', '/dsh-crate/install', { url: 'https://github.com/o/dsh-loop' }, { crossOrigin: true })
     expect(cross.status).toBe(403)
+  })
+
+  describe('catalog sources beyond the public one', () => {
+    const PRIVATE_ENTRY = {
+      name: 'badge', owner: 'acme', url: 'https://repo.acme.internal/tools/badge', category: 'tool', npm: '@acme/badge',
+      description: {}, install: '@acme/badge', added: '', source: { id: 'acme', label: { en: 'Acme' } },
+    }
+    const withPrivate = { ...REGISTRY, plugins: [PRIVATE_ENTRY, ...REGISTRY.plugins] }
+    const policyFile = (doc: unknown): void => {
+      const path = join(tmpdir(), `dshm-flows-policy-${String(process.pid)}.json`)
+      writeFileSync(path, JSON.stringify(doc))
+      vi.stubEnv('DSH_CRATE_POLICY', path)
+      resetPolicyCache()
+    }
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      resetPolicyCache()
+    })
+
+    it('still refuses a URL that no loaded source lists, whichever sources are loaded', async () => {
+      registryModule.loadRegistry.mockImplementation(() => Promise.resolve(withPrivate))
+      try {
+        for (const url of ['https://github.com/evil/mal', 'https://repo.acme.internal/tools/other', 'git+https://repo.acme.internal/tools/badge.git']) {
+          const refused = await bed.dispatch('POST', '/dsh-crate/install', { url })
+          expect(refused.status, url).toBe(400)
+          expect(String(refused.json.error)).toContain('not in the curated registry')
+        }
+        expect(fake.calls.filter(call => call[0] === 'add')).toEqual([])
+      } finally {
+        registryModule.loadRegistry.mockImplementation(() => Promise.resolve(REGISTRY))
+      }
+    })
+
+    it('installs an entry from an added catalog by its npm name, wherever its link points', async () => {
+      registryModule.loadRegistry.mockImplementation(() => Promise.resolve(withPrivate))
+      fake.npm['@acme/badge'] = { latest: '1.0.0', versions: { '1.0.0': { manifest: { dsh: {}, main: 'lib/index.js' }, artifacts: ['lib/index.js'] } } }
+      try {
+        const installed = await bed.dispatch('POST', '/dsh-crate/install', { url: PRIVATE_ENTRY.url })
+        expect(installed.status, JSON.stringify(installed.json)).toBe(200)
+        expect(fake.calls.filter(call => call[0] === 'add')).toEqual([['add', '@acme/badge@1.0.0']])
+      } finally {
+        registryModule.loadRegistry.mockImplementation(() => Promise.resolve(REGISTRY))
+      }
+    })
+
+    it('refuses an entry the catalog lists but the organization\'s allowlist excludes', async () => {
+      registryModule.loadRegistry.mockImplementation(() => Promise.resolve(withPrivate))
+      policyFile({ allow: ['@acme/*'] })
+      try {
+        const refused = await bed.dispatch('POST', '/dsh-crate/install', { url: 'https://github.com/o/dsh-loop' })
+        expect(refused.status).toBe(403)
+        expect(String(refused.json.error)).toMatch(/does not allow/)
+        // the same list still installs what the allowlist names
+        fake.npm['@acme/badge'] = { latest: '1.0.0', versions: { '1.0.0': { manifest: { dsh: {}, main: 'lib/index.js' }, artifacts: ['lib/index.js'] } } }
+        expect((await bed.dispatch('POST', '/dsh-crate/install', { url: PRIVATE_ENTRY.url })).status).toBe(200)
+      } finally {
+        registryModule.loadRegistry.mockImplementation(() => Promise.resolve(REGISTRY))
+      }
+    })
+
+    it('installs an internal-repository entry from the address its catalog gave, never from the request', async () => {
+      const spec = 'git+https://repo.acme.internal/tools/badge.git#v1.2.0'
+      const gitEntry = { ...PRIVATE_ENTRY, name: 'badge-git', url: 'https://repo.acme.internal/tools/badge-git', npm: null, git: spec }
+      registryModule.loadRegistry.mockImplementation(() => Promise.resolve({ ...REGISTRY, plugins: [gitEntry, ...REGISTRY.plugins] }))
+      try {
+        // an address in the request body changes nothing, and names nothing new
+        const forged = await bed.dispatch('POST', '/dsh-crate/install', { url: 'https://repo.acme.internal/tools/elsewhere', git: 'git+https://evil.example/x.git' })
+        expect(forged.status).toBe(400)
+        expect(fake.calls.filter(call => call[0] === 'add')).toEqual([])
+        const installed = await bed.dispatch('POST', '/dsh-crate/install', { url: gitEntry.url, git: 'git+https://evil.example/x.git' })
+        // the stand-in pnpm does not know this remote; what matters is what was asked of pnpm
+        expect(installed.status).toBeGreaterThan(0)
+        expect(fake.calls.filter(call => call[0] === 'add')).toEqual([['add', spec]])
+      } finally {
+        registryModule.loadRegistry.mockImplementation(() => Promise.resolve(REGISTRY))
+      }
+    })
+
+    it('installs an offline-bundle entry from the package file that came with it', async () => {
+      const file = '/var/dsh/offline/offline-ab12cd34/tarballs/acme-badge-1.0.0.tgz'
+      const bundled = { ...PRIVATE_ENTRY, name: '@acme/badge', url: 'https://repo.acme.internal/tools/badge-offline', npm: null, offlineTarball: file }
+      registryModule.loadRegistry.mockImplementation(() => Promise.resolve({ ...REGISTRY, plugins: [bundled, ...REGISTRY.plugins] }))
+      try {
+        const installed = await bed.dispatch('POST', '/dsh-crate/install', { url: bundled.url, offlineTarball: '/etc/passwd' })
+        expect(installed.status).toBeGreaterThan(0)
+        expect(fake.calls.filter(call => call[0] === 'add')).toEqual([['add', `file:${file}`]])
+      } finally {
+        registryModule.loadRegistry.mockImplementation(() => Promise.resolve(REGISTRY))
+      }
+    })
+
+    it('installs exactly the version an administrator pinned, whatever the page asked for', async () => {
+      registryModule.loadRegistry.mockImplementation(() => Promise.resolve(withPrivate))
+      fake.npm['@acme/badge'] = { latest: '2.0.0', versions: { '1.0.0': { manifest: { dsh: {}, main: 'lib/index.js' }, artifacts: ['lib/index.js'] }, '2.0.0': { manifest: { dsh: {}, main: 'lib/index.js' }, artifacts: ['lib/index.js'] } } }
+      policyFile({ pins: { '@acme/badge': '1.0.0' } })
+      try {
+        const installed = await bed.dispatch('POST', '/dsh-crate/install', { url: PRIVATE_ENTRY.url, version: '2.0.0' })
+        expect(installed.status, JSON.stringify(installed.json)).toBe(200)
+        expect(fake.calls.filter(call => call[0] === 'add')).toEqual([['add', '@acme/badge@1.0.0']])
+      } finally {
+        registryModule.loadRegistry.mockImplementation(() => Promise.resolve(REGISTRY))
+      }
+    })
+
+    it('does not look up compatibility for a package that is not in any loaded source', async () => {
+      registryModule.loadRegistry.mockImplementation(() => Promise.resolve(withPrivate))
+      try {
+        const bad = await bed.dispatch('POST', '/dsh-crate/find-compatible', { npmName: '@acme/not-listed' })
+        expect(bad.status).toBe(400)
+        expect(String(bad.json.error)).toContain('not in the curated registry')
+      } finally {
+        registryModule.loadRegistry.mockImplementation(() => Promise.resolve(REGISTRY))
+      }
+    })
   })
 
   it('retries around a peer on an unpublished host package, and only when the profile never asked for it (#289)', async () => {

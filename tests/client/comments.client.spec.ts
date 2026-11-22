@@ -11,9 +11,9 @@ import { GISCUS, commentsDiscussionUrl, giscusLang, pluginSlug } from '../../src
 
 describe('giscus configuration', () => {
   it('names the repository and category the threads live in', () => {
-    expect(GISCUS.repo).toBe('awesome-dsh-plugin/awesome-dsh-plugin')
+    expect(GISCUS.repo).toBe('dshcrate/dsh-crate')
     expect(GISCUS.repoId).not.toBe('')
-    expect(GISCUS.category).toBe('Plugins')
+    expect(GISCUS.category).toBe('Announcements')
     expect(GISCUS.categoryId).not.toBe('')
   })
 })
@@ -37,7 +37,7 @@ describe('commentsDiscussionUrl', () => {
   it('searches GitHub for the exact shared discussion term', () => {
     const href = new URL(commentsDiscussionUrl('https://github.com/owner/repo/tree/main/packages/a'))
     expect(href.origin + href.pathname).toBe(
-      'https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/discussions',
+      'https://github.com/dshcrate/dsh-crate/discussions',
     )
     expect(href.searchParams.get('discussions_q')).toBe('"plugin:owner/repo--packages-a"')
   })

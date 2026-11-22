@@ -22,6 +22,7 @@ import {
   pluginScreenshotCandidates, resetGithubRouting, resetScreenshotsCache, restartHintKey, setGithubRoutes,
 } from '../../src/client/market-data.ts'
 import { en, ja, zh } from '../../src/client/locales.ts'
+import { setOrgPolicy } from '../../src/client/org-policy.ts'
 
 describe('Issue #991 approval target and queue feedback', () => {
   describe.each(['en', 'zh'])('visible update explanation in %s', (lang) => {
@@ -3208,7 +3209,7 @@ describe('MarketSection (jsdom)', () => {
 
   it('routes update-notes images through raw candidates instead of connecting directly (#1070)', () => {
     setGithubRoutes({ raw: ['https://bad.example', 'https://good.example', null], avatar: [null] })
-    const src = 'https://raw.githubusercontent.com/awesome-dsh-plugin/awesome-dsh-plugin/main/shot.png'
+    const src = 'https://raw.githubusercontent.com/dshcrate/dshcrate/main/shot.png'
     const first = render(<GithubRoutedImg src={src} alt="shot" />)
     let img = first.container.querySelector('img')!
     expect(img.src).toContain(`https://bad.example/${src}`)
@@ -5612,8 +5613,7 @@ describe('#60 enable/disable switches in the Installed tab', () => {
         disabled: [],
         groups: {},
         groupOrder: [],
-        activation: {
-          'dsh-crate': { state: 'live', reasons: [], bundle: true, hot: true },
+        activation: { 'dsh-crate': { state: 'live', reasons: [], bundle: true, hot: true },
           'dsh-loop': { state: 'live', reasons: [], bundle: true, hot: true },
         },
       },
@@ -5623,7 +5623,7 @@ describe('#60 enable/disable switches in the Installed tab', () => {
     // A real plugin is installed alongside the market — its row shows,
     // proving the list isn't just empty, but the market's own row does not.
     await screen.findByText('dsh-loop')
-    expect(screen.queryByTitle('dsh-crate')).toBeNull()
+    expect(screen.queryByText('dsh-crate', { selector: '[class*="irowNameText"]' })).toBeNull()
     // The tab's own count badge counts the one real plugin, not the market too.
     expect(screen.getByRole('button', { name: /^Installed \(1\)/ })).toBeTruthy()
   })
@@ -5643,7 +5643,7 @@ describe('#60 enable/disable switches in the Installed tab', () => {
     render(<MarketSection {...props()} />)
     fireEvent.click(screen.getByRole('button', { name: /Installed/ }))
     expect(await screen.findByText(en.installedEmpty)).toBeTruthy()
-    expect(screen.queryByTitle('dsh-crate')).toBeNull()
+    expect(screen.queryByText('dsh-crate', { selector: '[class*="irowNameText"]' })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Installed \(\d/ })).toBeNull()
   })
 
@@ -10062,13 +10062,11 @@ describe('a shell that runs the host as its child process owns the restart', () 
 })
 
 describe('boot-scoped update reminder dismissals (#419)', () => {
-  const installed = {
-    'dsh-crate': '^1.38.0',
+  const installed = { 'dsh-crate': '^1.38.0',
     'dsh-loop': '^1.0.0',
     'dsh-notify': '^1.0.0',
   }
-  const updateStatuses = {
-    'dsh-crate': { kind: 'npm', current: '1.38.0', latest: '1.39.0', updateAvailable: true },
+  const updateStatuses = { 'dsh-crate': { kind: 'npm', current: '1.38.0', latest: '1.39.0', updateAvailable: true },
     'dsh-loop': { kind: 'npm', current: '1.0.0', latest: '1.1.0', updateAvailable: true },
     'dsh-notify': { kind: 'npm', current: '1.0.0', latest: '1.1.0', updateAvailable: true },
   }
@@ -13964,5 +13962,173 @@ describe('compact header, detail view and quiet notes', () => {
       fireEvent.click(close.at(-1)!)
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     })
+  })
+})
+
+describe('catalogs beyond the public one', () => {
+  const PRIVATE = {
+    name: 'badge', owner: '', url: 'https://repo.acme.internal/tools/badge', category: 'hr', npm: '@acme/badge', added: '2026-08-12',
+    description: { en: 'Show a badge' }, install: '@acme/badge',
+    source: { id: 'acme', label: { en: 'Acme internal', zh: 'Acme 内部' } },
+  }
+  const SOURCES = [
+    { id: 'public', kind: 'public', label: { en: 'Public catalog' }, where: '', status: 'ok', count: 3, skipped: 0, locked: false },
+    { id: 'acme', kind: 'policy', label: { en: 'Acme internal', zh: 'Acme 内部' }, where: 'plugins.acme.internal', status: 'ok', count: 1, skipped: 0, locked: true },
+  ]
+  const MERGED = {
+    ...REGISTRY, count: 4, categories: { ...REGISTRY.categories, hr: { en: 'People', zh: '人事' } },
+    plugins: [PRIVATE, ...REGISTRY.plugins], sources: SOURCES,
+  }
+  const serve = (registry: unknown, extra: Record<string, unknown> = {}) => stubFetch({
+    '/dsh-crate/registry': { source: 'live', registry, hostVersion: '0.1.2-alpha.2' },
+    ...extra,
+  })
+
+  it('tags an entry that came from an added catalog, and only that one', async () => {
+    serve(MERGED)
+    render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'badge' })
+    // The tag sits with the category tags; the public cards have none of it.
+    const tags = [...document.querySelectorAll(`.${css.srcTag}`)].map(node => node.textContent)
+    expect(tags).toEqual(['Acme internal'])
+  })
+
+  it('does not put the GitHub mark beside an entry that does not link to GitHub', async () => {
+    serve(MERGED)
+    render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'badge' })
+    expect(screen.queryByRole('link', { name: new RegExp(`^badge — ${en.repoLink}`) })).toBeNull()
+    expect(screen.getByRole('link', { name: new RegExp(`^dsh-notify — ${en.repoLink}`) })).toBeTruthy()
+  })
+
+  it('offers a source filter when two catalogs loaded, and narrows the list with it', async () => {
+    serve(MERGED)
+    render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'badge' })
+    const group = screen.getByRole('group', { name: en.srcFilterLabel })
+    fireEvent.click(within(group).getByRole('button', { name: 'Acme internal' }))
+    await waitFor(() => { expect(screen.queryAllByRole('button', { name: 'dsh-notify' })).toHaveLength(0) })
+    expect(screen.getAllByRole('button', { name: 'badge' }).length).toBeGreaterThan(0)
+    fireEvent.click(within(group).getByRole('button', { name: 'Public catalog' }))
+    await screen.findAllByRole('button', { name: 'dsh-notify' })
+    expect(screen.queryAllByRole('button', { name: 'badge' })).toHaveLength(0)
+    fireEvent.click(within(group).getByRole('button', { name: en.srcAll }))
+    await screen.findAllByRole('button', { name: 'badge' })
+  })
+
+  it('shows no filter, no tag and no notice to someone who uses only the public catalog', async () => {
+    serve(REGISTRY)
+    render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'dsh-notify' })
+    expect(screen.queryByRole('group', { name: en.srcFilterLabel })).toBeNull()
+    expect(document.querySelector(`.${css.srcTag}`)).toBeNull()
+    expect(document.querySelector(`.${css.srcProblems}`)).toBeNull()
+  })
+
+  it('shows no filter when only one catalog loaded', async () => {
+    serve({ ...MERGED, sources: [SOURCES[0], { ...SOURCES[1], status: 'failed', count: 0, error: { code: 'auth', detail: '401' } }], plugins: REGISTRY.plugins })
+    render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'dsh-notify' })
+    expect(screen.queryByRole('group', { name: en.srcFilterLabel })).toBeNull()
+  })
+
+  it('names the catalog that could not be read, says what to do, and retries', async () => {
+    const failing = { ...MERGED, plugins: REGISTRY.plugins, sources: [SOURCES[0], { ...SOURCES[1], status: 'failed', count: 0, error: { code: 'auth', detail: '401' } }] }
+    serve(failing)
+    render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'dsh-notify' })
+    const notice = document.querySelector(`.${css.srcProblems}`) as HTMLElement
+    expect(notice.textContent).toContain('Acme internal')
+    expect(notice.textContent).toContain(en.srcFailed)
+    expect(notice.textContent).toContain(en.srcErrAuth.replace('{0}', '401'))
+    const before = fetchCalls.filter(call => call.path === '/dsh-crate/registry').length
+    fireEvent.click(within(notice).getByRole('button', { name: en.loadRetry }))
+    await waitFor(() => { expect(fetchCalls.filter(call => call.path === '/dsh-crate/registry').length).toBeGreaterThan(before) })
+  })
+
+  it('names every catalog, instead of a joined diagnostic, when nothing loaded', async () => {
+    stubFetch({
+      '/dsh-crate/registry': {
+        error: 'public: network · acme: file', __status: 502,
+        sources: [
+          { id: 'public', kind: 'public', label: { en: 'Public catalog' }, where: '', status: 'failed', count: 0, skipped: 0, locked: false, error: { code: 'network', detail: 'x' } },
+          { id: 'acme', kind: 'policy', label: { en: 'Acme internal' }, where: '/opt/acme/plugins.json', status: 'failed', count: 0, skipped: 0, locked: true, error: { code: 'file', detail: 'not found' } },
+        ],
+      },
+    })
+    render(<MarketSection {...props()} />)
+    await screen.findByText(en.loadFail)
+    const notice = document.querySelector(`.${css.srcProblems}`) as HTMLElement
+    expect(notice.textContent).toContain('Public catalog')
+    expect(notice.textContent).toContain(en.srcErrFile)
+    expect(screen.queryByText('public: network · acme: file')).toBeNull()
+  })
+})
+
+describe('what an organization turned off or fixed', () => {
+  const PRIVATE = {
+    name: 'badge', owner: '', url: 'https://repo.acme.internal/tools/badge', category: 'tools', npm: '@acme/badge', added: '2026-08-12',
+    description: { en: 'Show a badge' }, install: '@acme/badge',
+    screenshots: ['https://img.acme.internal/badge.png'],
+    source: { id: 'acme', label: { en: 'Acme internal' } },
+  }
+  const withPolicy = (policy: Record<string, unknown> | undefined, plugins: unknown[] = [PRIVATE, ...REGISTRY.plugins]) => stubFetch({
+    '/dsh-crate/registry': {
+      source: 'live', hostVersion: '0.1.2-alpha.2', registry: { ...REGISTRY, count: plugins.length, plugins },
+      ...(policy === undefined ? {} : { policy }),
+    },
+  })
+  afterEach(() => { setOrgPolicy(null) })
+
+  it('keeps the Comments button for a public entry, and drops it for an entry from an added catalog', async () => {
+    withPolicy(undefined)
+    render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'badge' })
+    const comments = screen.getAllByRole('button', { name: en.comments })
+    // every public card has it; the private one does not
+    expect(comments).toHaveLength(REGISTRY.plugins.length)
+  })
+
+  it('drops every Comments button when the organization turned comments off', async () => {
+    withPolicy({ comments: false })
+    render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'badge' })
+    expect(screen.queryAllByRole('button', { name: en.comments })).toHaveLength(0)
+  })
+
+  it('shows an image from the entry\'s own host directly, and not through a public resizing service', async () => {
+    withPolicy(undefined)
+    const { container } = render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'badge' })
+    const shots = [...container.querySelectorAll('img')].map(img => img.getAttribute('src') ?? '')
+    expect(shots).toContain('https://img.acme.internal/badge.png')
+    expect(shots.some(src => src.includes('images.weserv.nl') && src.includes('acme.internal'))).toBe(false)
+  })
+
+  it('loads no outside image at all — no screenshot, no avatar — when the organization forbids them', async () => {
+    withPolicy({ externalImages: false }, [PRIVATE, { ...REGISTRY.plugins[0], screenshots: ['https://raw.githubusercontent.com/alice/dsh-loop/HEAD/a.png'] }])
+    const { container } = render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'badge' })
+    const sources = [...container.querySelectorAll('img')].map(img => img.getAttribute('src') ?? '')
+    expect(sources.filter(src => /^https?:/.test(src) && !src.startsWith(location.origin))).toEqual([])
+    // the owner still gets a letter tile instead of a blank
+    expect(container.querySelector(`.${css.av}`)?.textContent).toMatch(/\S/)
+  })
+
+  it('still loads public images for someone with no policy', async () => {
+    withPolicy(undefined, [{ ...REGISTRY.plugins[0], screenshots: ['https://raw.githubusercontent.com/alice/dsh-loop/HEAD/a.png'] }])
+    const { container } = render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'dsh-loop' })
+    const sources = [...container.querySelectorAll('img')].map(img => img.getAttribute('src') ?? '')
+    expect(sources.some(src => src.includes('githubusercontent.com'))).toBe(true)
+  })
+
+  it('says a plugin\'s version was set by the organization, on its card', async () => {
+    withPolicy(undefined, [{ ...PRIVATE, version: '1.21.6', pinned: '1.21.6' }, ...REGISTRY.plugins])
+    render(<MarketSection {...props()} />)
+    await screen.findAllByRole('button', { name: 'badge' })
+    expect(screen.getByText(en.pinnedByOrg.replace('{0}', '1.21.6'))).toBeTruthy()
+    // and says nothing of the kind about the rest
+    expect(screen.getAllByText(/Version set by your organization/)).toHaveLength(1)
   })
 })

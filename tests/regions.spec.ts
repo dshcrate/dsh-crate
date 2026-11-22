@@ -8,9 +8,13 @@
  * build-script approval still has to produce the key it produced before.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { resetPolicyCache } from '../src/policy.ts'
 import {
-  activeRegion, asRegion, catalogSourcesFor, DEFAULT_NPM_REGISTRY, githubRoutesFor, REGIONS, rememberGithubRoute,
+  activeRegion, asRegion, catalogSourcesFor, DEFAULT_NPM_REGISTRY, githubProxyManaged, githubRoutesFor, REGIONS, rememberGithubRoute,
   resetGithubRoutePreferences, routesFor, setActiveRegion, setCustomGithubProxy, throughProxy,
 } from '../src/regions.ts'
 import { codeloadAllowBuildsKey, codeloadTarball, githubCommitOfTarget, gitAllowBuildsKey, githubRepoOfRemote, pinnedAllowBuildsKeys, pinnedGitAllowBuildsKey, repoOfTarget } from '../src/sources.ts'
@@ -47,9 +51,10 @@ describe('routesFor', () => {
     const routes = routesFor('china', {})
     expect(routes.npmRegistry).not.toBe(DEFAULT_NPM_REGISTRY)
     expect(routes.githubProxy).not.toBeNull()
-    // crate 只有一份公开 JSON，没有可以退到的 npm 镜像包：两个地区的目录
-    // 候选都只有这一个地址。
-    expect(routes.catalog).toEqual([{ kind: 'url', url: expect.stringContaining('dshcrate.com') }])
+    // crate 只有一份公开目录 JSON，两个地区都直接读它，不走 npm 镜像包。
+    expect(routes.catalog).toEqual([
+      { kind: 'url', url: 'https://dshcrate.com/data/dsh-crate.json' },
+    ])
     expect(routes.githubRoutes.raw).toEqual([
       'https://gh-proxy.com', 'https://ghfast.top', null,
     ])
@@ -61,21 +66,54 @@ describe('routesFor', () => {
     expect(routes.githubRoutes.avatar).toEqual(routes.githubRoutes.git)
   })
 
-  it('asks the same single catalog address in every region', () => {
-    for (const region of ['global', 'china'] as const) {
-      const sources = catalogSourcesFor(region)
-      expect(sources).toHaveLength(1)
-      expect(sources[0]).toEqual({ kind: 'url', url: 'https://dshcrate.com/data/dsh-crate.json' })
+  it('leaves the global catalog at the single crate URL', () => {
+    const sources = catalogSourcesFor('global')
+    expect(sources).toEqual([
+      { kind: 'url', url: 'https://dshcrate.com/data/dsh-crate.json' },
+    ])
+  })
+
+  it('does not add npm catalog sources for either region', () => {
+    for (const region of REGIONS) {
+      expect(catalogSourcesFor(region)).toEqual([
+        { kind: 'url', url: 'https://dshcrate.com/data/dsh-crate.json' },
+      ])
     }
   })
 
-  it('does not invent an npm fallback for the catalog', () => {
-    // The old list ended at `dsh-plugin-catalog` on the region's own registry.
-    // crate has no such package, and a fallback that answers 404 costs two
-    // attempts and still fails — worse than the honest single source.
-    for (const region of ['global', 'china'] as const) {
-      expect(catalogSourcesFor(region).some(source => source.kind === 'npm')).toBe(false)
+  it('uses the same single crate URL for the China region', () => {
+    expect(catalogSourcesFor('china')).toEqual([
+      { kind: 'url', url: 'https://dshcrate.com/data/dsh-crate.json' },
+    ])
+  })
+
+  it('does not change the catalog URL when an npm mirror is named', () => {
+    process.env.DSHM_NPM_MIRROR = 'https://npm.internal'
+    try {
+      expect(catalogSourcesFor('china')).toEqual([
+        { kind: 'url', url: 'https://dshcrate.com/data/dsh-crate.json' },
+      ])
+    } finally {
+      delete process.env.DSHM_NPM_MIRROR
     }
+  })
+
+  it('lets DSHM_REGISTRY_URL replace the single catalog source', () => {
+    process.env.DSHM_REGISTRY_URL = 'https://catalog.internal/plugins.json'
+    try {
+      expect(catalogSourcesFor('global')).toEqual([
+        { kind: 'url', url: 'https://catalog.internal/plugins.json' },
+      ])
+    } finally {
+      delete process.env.DSHM_REGISTRY_URL
+    }
+  })
+
+  it('keeps the crate URL when an npm mirror is named', () => {
+    const routes = routesFor('china', { DSHM_NPM_MIRROR: 'https://npm.internal' })
+    expect(routes.catalog).toEqual([
+      { kind: 'url', url: 'https://dshcrate.com/data/dsh-crate.json' },
+    ])
   })
 
   it('lets the environment override each route', () => {
@@ -428,5 +466,51 @@ describe('allowBuilds keys off GitHub (#637 follow-up)', () => {
       .toBe(`p@https://codeload.github.com/o/r/tar.gz/${SHA}`)
     expect(pinnedGitAllowBuildsKey('p', 'bitbucket:o/r', 'main')).toBeNull()
     expect(pinnedGitAllowBuildsKey('p', 'themer', SHA)).toBeNull()
+  })
+})
+
+describe('mirrors set by an organization policy', () => {
+  let dir: string
+  const withPolicy = (doc: unknown): void => {
+    dir = mkdtempSync(join(tmpdir(), 'dshm-regions-policy-'))
+    const file = join(dir, 'policy.json')
+    writeFileSync(file, JSON.stringify(doc))
+    vi.stubEnv('DSH_CRATE_POLICY', file)
+    resetPolicyCache()
+  }
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    resetPolicyCache()
+    if (dir !== undefined) rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('changes nothing when there is no policy', () => {
+    expect(routesFor('global').npmRegistry).toBe(DEFAULT_NPM_REGISTRY)
+    expect(routesFor('global').catalog).toEqual([{ kind: 'url', url: 'https://dshcrate.com/data/dsh-crate.json' }])
+  })
+
+  it('routes npm and the catalog where the policy says, over the region and over the environment', () => {
+    withPolicy({ mirrors: { npm: 'https://npm.acme.internal/', catalog: 'https://c.acme.internal/plugins.json' } })
+    const env = { DSHM_NPM_MIRROR: 'https://env.example', DSHM_REGISTRY_URL: 'https://env.example/p.json' }
+    for (const region of REGIONS) {
+      const routes = routesFor(region, env)
+      expect(routes.npmRegistry).toBe('https://npm.acme.internal')
+      expect(routes.catalog).toEqual([{ kind: 'url', url: 'https://c.acme.internal/plugins.json' }])
+    }
+  })
+
+  it('takes the GitHub prefix from the policy, and then the user cannot change it', () => {
+    withPolicy({ mirrors: { githubProxy: 'https://gh.acme.internal/proxy/' } })
+    setCustomGithubProxy('https://mine.example')
+    expect(routesFor('global').githubProxy).toBe('https://gh.acme.internal/proxy')
+    expect(routesFor('global').githubRoutes.raw[0]).toBe('https://gh.acme.internal/proxy')
+    expect(githubProxyManaged()).toBe(true)
+  })
+
+  it('leaves the user\'s own GitHub prefix alone when the policy names none', () => {
+    withPolicy({ publicCatalog: true })
+    setCustomGithubProxy('https://mine.example')
+    expect(routesFor('global').githubProxy).toBe('https://mine.example')
+    expect(githubProxyManaged({})).toBe(false)
   })
 })

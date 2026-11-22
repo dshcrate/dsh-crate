@@ -401,7 +401,7 @@ function spawnEnv(invocation: HostPackageManager | null = hostPackageManager): N
   }
 }
 
-const INSTALL_TIMEOUT_MS = Number(process.env.DSH_MARKET_INSTALL_TIMEOUT_MS) || 15 * 60 * 1000
+const INSTALL_TIMEOUT_MS = Number(process.env.DSH_CRATE_INSTALL_TIMEOUT_MS) || 15 * 60 * 1000
 
 /**
  * Windows npm/corepack/pnpm are `.cmd` shims. Node's `spawn` without a shell
