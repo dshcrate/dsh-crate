@@ -92,6 +92,8 @@ npm run build:client
 - 插件页整页滚动和底部 64px 跟随上游，不是本地定制；同步时不要回贴，也不要为它们单独改断言
 - 品牌回写必须在**所有合并完成后**统一再跑一遍：合并会把上游新片段带进 `src`/`tests`/`locale`，合并前替换会漏；CSS 里的 `data-dsh-market-*` 属性名是最容易漏的点（2026-11-19 漏了两条吸顶规则）
 - 替换后要修语法：对象键 `{ dsh-crate: … }` 加引号，属性访问 `x.dsh-crate` 改成 `x['dsh-crate']`
+- v1.77 起 AI 功能依赖宿主 `llm` / `commands` 服务：`src/index.ts` 的 `setModelAccess` 与 `ctx.inject(['commands'])` 不能丢；旧宿主会自动降级为“没有模型”，不要删降级分支
+- `search-synonyms.ts` 已从 `src/client/` 移到 `src/`，同步时删除旧文件并更新两处 import，避免重复模块
 - 构建产物也要查：`client/client.js` 中上游品牌必须为 0，`lib/registry.js` 必须含 `parseCatalog`；再用 `lib/registry.js` 的 `loadRegistry()` 真实加载一次线上目录，确认 `entries` 桥接可用
 - 非保护文件按文件清单 checkout，不要 `git checkout <tag> -- tests` 整目录覆盖，否则会冲掉本地定制测试（品牌防护、滚动、图标、拓扑适配）
 
@@ -111,5 +113,6 @@ npm run build:client
 | 2026-11-20 | v1.73.24 → v1.73.25 | `71d3dfc`（当天打开页面额外上报 `opened:true`、`lastOpenDay`、`/telemetry/opened`）；`d0967c7` 仅版本号跳过 | `a754937`（插件）、`df5f032`（测试 stub）、`03174c7`（站点服务端与看板） | `e6a2b4b` README 商务合作、上游站点隐私页、版本号；D1 增加 `opened` 列，Pages Function 与看板同步 |
 | 2026-11-21 | v1.73.25 → v1.74.0（含 `fb38e08`、`a05f16d`） | `196ace9`（紧凑头部、卡片标题进详情、两行卡片元信息、最近收录翻页箭头）、`b05db65`（赞助商华龙算力）、`9aeab86`（收藏/主题/隐藏页目录重试）、`b9438a7`（发布等待期只标注被拦的更新）、`fb38e08`（测试先打开已安装页）、`a05f16d`（搜索框 × 保留焦点） | 本次提交 | 版本号 `4c5b8f6`/`76f4132`、README 与站点截图 `899c0f8`/`acad04b`/`e6a2b4b`；保护文件逐块合并，设置页吸顶与箱子 logo 回贴，`locales.ts` 回到本地 HEAD 再补新键，赞助商默认关闭，品牌串与测试断言同步修正，`client.js` 本地重建 |
 | 2026-11-21 | v1.74.0 → v1.75.0（`upstream/main` `f763bf6`） | `54de7b2`（Installed 页显示市场自身新版本提示：版本号、重启生效说明、更新按钮、按版本关闭、页签圆点） | 本次提交 | `4f449ec` 私有遥测看板与 `f763bf6` 删除看板净变化为 0、`6fd478f` 版本号、`SECURITY.md` 看板保留说明；保护文件逐块合并，保留 `SHOW_SPONSORS=false`、投稿链接与仓库链接修正，`locales.ts` 补三语 `marketOfferBanner`/`marketOfferHint`，`client.js` 本地重建 |
+| 2026-11-22 | v1.75.0 → v1.77.1（`upstream/main` `5b86e58`） | `8a088fe`（AI 搜索与聊天 `/find-plugin`）、`b7799fb`（AI 猜你喜欢、允许 AI 参考已安装/收藏）、`0516faf`（侧栏提示加撤销）、`16f91cc`（disable-list 重放不再拖垮宿主）、`28385cf`（provision 不继承已删除 cwd）、`a6221b2`（官方 bundle 不被 peer 副本误判）、`d696348`（目录校验脚本与测试，上游 CI workflow 跳过） | 本次提交 | README/站点/特性截图/`SECURITY.md`、`.github` 上游 CI、4 个 release 版本号提交；保护文件逐块合并，保留 `dsh-crate` 身份、设置页吸顶、箱子 logo、投稿链接、`SHOW_SPONSORS=false`；`search-synonyms` 从 `src/client` 移到 `src`，品牌与 `/dsh-market/*` 路由回写为 `/dsh-crate/*`，`client.js` 本地重建 |
 
 新的同步完成后，在表里追加一行：上游版本范围、采纳的 commit、对应的本地 commit、跳过项及原因。
