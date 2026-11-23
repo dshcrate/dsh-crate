@@ -581,7 +581,7 @@ export function parseCatalogInput(text: string): { url?: string; file?: string }
     try { return { file: fileURLToPath(value) } } catch { return { error: 'unrecognized' } }
   }
   const expanded = expandHomePath(value)
-  if (isAbsolute(expanded)) return { file: expanded }
+  if (isAbsolute(expanded) || /^[\\/]/u.test(expanded)) return { file: expanded }
   return { error: 'unrecognized' }
 }
 

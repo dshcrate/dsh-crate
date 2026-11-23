@@ -5221,6 +5221,7 @@ describe('lost install progress (config page reopened)', () => {
       }))
       render(<MarketSection {...props()} />)
       await vi.waitFor(() => { screen.getByRole('button', { name: en.installing }) })
+      await vi.waitFor(() => { screen.getByRole('button', { name: `${en.opInstalling} 1/1` }) })
       fireEvent.click(screen.getByRole('button', { name: `${en.opInstalling} 1/1` }))
       const panel = document.querySelector('[class*="opPanel"]')
       expect(panel, 'the Tasks panel did not open').toBeTruthy()
