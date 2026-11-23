@@ -8,7 +8,8 @@ import css from './Market.module.css'
 import { OperationsPanel } from './OperationsPanel.tsx'
 import { rememberDismissedHostId } from './dismissed-host.ts'
 import { clearSettled, drop } from './operations.ts'
-import { localizeBilingual, localizeBilingualList, profileBlockedText, restartHintKey } from './market-data.ts'
+import { CLIENT_VERSION, requestSelfReload, serverIsBehind } from './client-version.ts'
+import { api, localizeBilingual, localizeBilingualList, profileBlockedText, restartHintKey } from './market-data.ts'
 import {
   IconCordisPluginOutline14,
   IconDownloadOutline16,
@@ -53,7 +54,7 @@ type MarketHeadCtx = { props: MarketSectionProps }
     'setRestartNoticeDismissed' | 'setRestoreConfirmOpen' | 'setSidebarTipDismissed' | 'setTab' |
     'showSidebarTip' | 'sidebarTipError' | 'sidebarTipSaving' | 'staleName' | 'startupRepair' |
     'supervisor' | 'surface' | 't' | 'tab' | 'themeSnap' | 'uiLocale' | 'updates' | 'updatingName' |
-    'version'>
+    'version' | 'hostCaps' | 'restartNames' | 'updatedNames' | 'activations'>
   & Pick<MarketSyncCtx, 'fixEnv'>
   & Pick<MarketInstallCtx,
     'compatibilitySummary' | 'doInstall' | 'doRollback' | 'favoriteTabCount' | 'shadowSummary'>
@@ -85,8 +86,33 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
     setRestartNoticeDismissed, setRestoreConfirmOpen, setSidebarTipDismissed, setTab, shadowSummary,
     showHostPending, showMarketWait, showSidebarTip, sidebarTipError, sidebarTipSaving, staleName,
     startupRepair, supervisor, surface, t, tab, themeSnap, uiLocale, updateCheckFailed, updates,
-    updatingName, version, marketOffer, takeMarketOffer,
+    updatingName, version, marketOffer, takeMarketOffer, hostCaps, restartNames, updatedNames, activations,
   } = c
+  const [reloadingSelf, setReloadingSelf] = useState<'idle' | 'working' | 'failed'>('idle')
+  // Why the server said it could not switch, in its own words; '' = no reason given.
+  const [reloadError, setReloadError] = useState('')
+  const staleServer = serverIsBehind(version)
+  /** Swap the new server half in, then reload the page so it matches. */
+  const applyNow = (): void => {
+    setReloadingSelf('working')
+    requestSelfReload(
+      () => fetch(api('/dsh-crate/reload-self'), { method: 'POST' }),
+      async () => {
+        const status = await (await fetch(api('/dsh-crate/status'))).json() as { version?: unknown }
+        return typeof status.version === 'string' ? status.version : null
+      },
+    ).then(result => {
+      if (result.ok) { location.reload(); return }
+      setReloadError(localizeBilingual(result.error, lang))
+      setReloadingSelf('failed')
+    }, () => { setReloadError(''); setReloadingSelf('failed') })
+  }
+  // The market itself is among the changes waiting for a restart, and this
+  // host can swap it in place: offer that instead of a restart (or on a
+  // Desktop that cannot restart, instead of nothing).
+  const marketWaiting = [...restartNames, ...updatedNames, ...Object.keys(activations).filter(name => activations[name]?.state === 'restart')]
+    .some(name => name === 'dsh-crate' || name === 'dsh-crate')
+  const applyInPlace = hostCaps.selfReload && marketWaiting && !staleServer && reloadingSelf !== 'failed'
   // Four everyday tabs in the row; the rarely used ones (Hidden, Advanced)
   // and the rarely used actions sit behind ···.
   const [moreOpen, setMoreOpen] = useState(false)
@@ -102,7 +128,9 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
   return (
     <>
       <div ref={headRef} className={css.head}>
-        {surface !== 'plugins' && (
+        {/* The logo title row, on every surface: the sidebar and the Plugins
+            page tab carry the same heading, so either one reads as the market. */}
+        {(
         <div className={css.headTop}>
         <div className={css.titleRow}>
           <MarketLogo size={15} ambient style={{ flexShrink: 0, transform: 'translateX(2px)' }} />
@@ -358,6 +386,38 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
             >{t('refresh')}</Button>
           </div>
         )}
+        {/* The page is newer than the server half still running: the market
+            updated itself and DSH has not reloaded it. Routes the page relies
+            on may not exist yet, so say so, with the one action that fixes
+            it where the host allows one. */}
+        {staleServer && (
+          <div className={css.banner} data-dshm-stale-server>
+            <IconRefreshOutline14 size={14} className={css.bannerIcon} />
+            <span className={css.grow}>
+              {t('staleBanner').replace('{0}', CLIENT_VERSION ?? '').replace('{1}', version ?? '')}
+              {' '}
+              {hostCaps.selfReload || (restartEnabled && restartReachable && debuggerLatch === null)
+                ? null
+                : t(hostCaps.desktop ? 'staleDesktopHint' : 'staleManualHint')}
+              {reloadingSelf === 'failed' && <> {reloadError !== '' ? reloadError : t(hostCaps.desktop ? 'staleDesktopHint' : 'staleManualHint')}</>}
+            </span>
+            {hostCaps.selfReload && reloadingSelf !== 'failed' ? (
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={reloadingSelf === 'working' || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null}
+                onClick={applyNow}
+              >{reloadingSelf === 'working' ? t('restarting') : t('staleReload')}</Button>
+            ) : restartEnabled && restartReachable && debuggerLatch === null && recovery === null && !marketGone && (
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={restarting || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null}
+                onClick={doRestart}
+              >{restarting ? t('restarting') : t('staleRestart')}</Button>
+            )}
+          </div>
+        )}
         {/* The market's own new version: named, with what updating does, on
             Installed; the Installed tab carries a dot so it is found. Once it
             is downloaded the restart notice below takes over. */}
@@ -401,7 +461,14 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
             >
               <span className={css.bannerHint}><IconQuestionOutline14 size={14} /></span>
             </Tooltip>
-            {restartEnabled && restartReachable && debuggerLatch === null && recovery === null && !marketGone && (
+            {applyInPlace ? (
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={reloadingSelf === 'working' || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null}
+                onClick={applyNow}
+              >{reloadingSelf === 'working' ? t('restarting') : t('staleReload')}</Button>
+            ) : restartEnabled && restartReachable && debuggerLatch === null && recovery === null && !marketGone && (
               <Button
                 variant="primary"
                 size="sm"
@@ -409,6 +476,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
                 onClick={doRestart}
               >{restarting ? t('restarting') : t('restartNow')}</Button>
             )}
+            {reloadingSelf === 'failed' && reloadError !== '' && marketWaiting && <span className={css.grow}>{reloadError}</span>}
             <button
               type="button"
               className={css.bannerClose}

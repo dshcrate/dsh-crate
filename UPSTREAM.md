@@ -102,6 +102,9 @@ npm run build:client
 - `src/regions.ts` 的策略 mirrors 可以覆盖区域与环境，但本地目录仍只有一份 `https://dshcrate.com/data/dsh-crate.json`；不要把上游的 npm 目录包重新带回来
 - `src/registry.ts` 的 `parseCatalog` 分派（crate 的 `entries` 与上游的 `plugins`）不能丢；`src/routes.ts` 继续用 `statePath`，不要退回 `.dsh-crate` 拼接
 - `src/client/comments.ts` 的 giscus 配置是本地值：`dshcrate/dsh-crate`、`R_kgDOVeu1VA`、`Announcements`、`DIC_kwDOVeu1VM4DLuXo`；上游同步后要回贴。仓库 Discussions 已开启，giscus 只装在 `dsh-crate` 仓库
+- `tsdown.config.ts` 的 `const id` 必须是 `dsh-crate`；上游 v1.80 是 `dshmarket`，构建后 `client/client.js` 头必须是 `window.__ModuleLoader__.load({ id: "dsh-crate"`，否则 normalize 会直接报错
+- v1.79 起入口默认值改为：设置页入口默认关闭，Plugins 页签与侧栏默认开启；这是上游产品决定，不要无理由改回
+- v1.80 的 self-reload 路由是 `/dsh-crate/reload-self`，安装包回退名是 `dsh-crate`；`src/self-reload.ts`、`src/client/client-version.ts`、`AddMenuMarketItem.tsx` 同步后要按本地品牌检查
 
 ## 同步记录
 
@@ -119,6 +122,6 @@ npm run build:client
 | 2026-11-20 | v1.73.24 → v1.73.25 | `71d3dfc`（当天打开页面额外上报 `opened:true`、`lastOpenDay`、`/telemetry/opened`）；`d0967c7` 仅版本号跳过 | `a754937`（插件）、`df5f032`（测试 stub）、`03174c7`（站点服务端与看板） | `e6a2b4b` README 商务合作、上游站点隐私页、版本号；D1 增加 `opened` 列，Pages Function 与看板同步 |
 | 2026-11-21 | v1.73.25 → v1.74.0（含 `fb38e08`、`a05f16d`） | `196ace9`（紧凑头部、卡片标题进详情、两行卡片元信息、最近收录翻页箭头）、`b05db65`（赞助商华龙算力）、`9aeab86`（收藏/主题/隐藏页目录重试）、`b9438a7`（发布等待期只标注被拦的更新）、`fb38e08`（测试先打开已安装页）、`a05f16d`（搜索框 × 保留焦点） | 本次提交 | 版本号 `4c5b8f6`/`76f4132`、README 与站点截图 `899c0f8`/`acad04b`/`e6a2b4b`；保护文件逐块合并，设置页吸顶与箱子 logo 回贴，`locales.ts` 回到本地 HEAD 再补新键，赞助商默认关闭，品牌串与测试断言同步修正，`client.js` 本地重建 |
 | 2026-11-21 | v1.74.0 → v1.75.0（`upstream/main` `f763bf6`） | `54de7b2`（Installed 页显示市场自身新版本提示：版本号、重启生效说明、更新按钮、按版本关闭、页签圆点） | 本次提交 | `4f449ec` 私有遥测看板与 `f763bf6` 删除看板净变化为 0、`6fd478f` 版本号、`SECURITY.md` 看板保留说明；保护文件逐块合并，保留 `SHOW_SPONSORS=false`、投稿链接与仓库链接修正，`locales.ts` 补三语 `marketOfferBanner`/`marketOfferHint`，`client.js` 本地重建 |
-| 2026-11-22 | v1.77.1 → v1.78.0（`upstream/main` `96bc26c`） | `6406a3b`（额外目录源、组织策略、用户目录）、`5d41839`（私有 npm registry）、`e407a6a`（profile `.npmrc` registry=）、`b4bfdf5`（离线 bundle 与严格导入）、`625af6c`（pins、telemetry/comments/externalImages 策略、内部 Git 条目、离线导入） | 本次提交 | `974da0a` README/ENTERPRISE/SECURITY 文档、`96bc26c` 版本号；新增文件按本地品牌回写，保护文件以上游为基底回贴 `dsh-crate` 身份、设置页吸顶、顶部 logo 15px+右移 2px、投稿链接 `/submit`、`SHOW_SPONSORS=false`；`telemetry` 保留默认开启并让组织策略优先；本地目录仍为 `https://dshcrate.com/data/dsh-crate.json`，未恢复 npm 目录包；`client.js` 与 `lib/` 本地重建；测试基线 4,330 通过 / 3 跳过 |
+| 2026-11-23 | v1.78.0 → v1.80.0（`upstream/main` `8747e07`） | `c196186`（入口默认值、Plugins 页 logo 标题、Add plugin 菜单）、`36bf883`（自身更新后旧服务端提示）、`f105db3`（reload-self 热替换服务端）、`9673b89`（reload-self 返回 `{outcome,error}` 并保持版本真实）、`0f7bf14`（旧服务端横幅等待 /status、错误文案、Apply now）、`d610293`（e2e 公共构建 helper 与横幅截图） | 本次提交 | `db03a60`/`8747e07` 仅版本号；8 个保护文件三方合并，保留 `dsh-crate` 身份、设置页吸顶、顶部 logo 15px+右移 2px、投稿 `/submit`、`SHOW_SPONSORS=false`、giscus 配置；`tsdown` loader id 回写 `dsh-crate`，reload 路由 `/dsh-crate/reload-self`，包回退名 `dsh-crate`；`client.js` 与 `lib/` 本地重建；测试基线 4,386 通过 / 3 跳过 |
 
 新的同步完成后，在表里追加一行：上游版本范围、采纳的 commit、对应的本地 commit、跳过项及原因。

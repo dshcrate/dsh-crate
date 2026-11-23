@@ -28,7 +28,7 @@ import { BundleError, extractBundle, isInsideOfflineRoot, MAX_BUNDLE_BYTES, type
 import { settingsNamespaceState } from './settings.ts'
 import { statePath } from './state.ts'
 import {
-  buildEnvFromUnknown, cleanHotDir, forgetInstalled, hotMount, hotMountFailure, hotUnmount, listHotMounts, listLiveHotMounts,
+  buildEnvFromUnknown, cleanHotDir, forgetInstalled, hotMount, hotMountFailure, hotUnmount, listHotMounts, listLiveHotMounts, resetHotState,
   MAX_BLOCKED, MAX_BLOCKED_NAME, MAX_FAVORITES, MAX_NOTE, MAX_UPDATE_EXEMPT,
   mountClientOnlyDeps, purgeMarketState, readMarketState, recordInstalled, recordUpdated, writeMarketState,
   type BrokenReason, type MarketState,
@@ -84,6 +84,7 @@ import { DEFAULT_UPDATE_CHECK_INTERVAL_HOURS, isUpdateCheckIntervalHours } from 
 import { createThemeManager, type LoaderEntry } from './themes.ts'
 import { readJsonBody, readRawBody, refuseUnadmitted, sameOrigin, sendJson } from './http.ts'
 import { resolveDshHome } from './home-paths.ts'
+import { asHmr, claimInstance, reloadSelf, selfReloadReply, type SelfReloadOutcome } from './self-reload.ts'
 import { readTelemetryState, sendOpened, setTelemetryEnabled, startHeartbeat, type HeartbeatOptions } from './telemetry.ts'
 import { clearWebdavSecret, readWebdavSecret, webdavSecretFor, writeWebdavSecret } from './webdav-secret.ts'
 import { detectedDebugger, detectedSupervisor, restartAllowed, scheduleRestart, servingPort, trustedRestartRequest, trustedDownloadRequest, trustedSelfUninstallRequest, selfUninstallReachableFrom, type RecoveryHandoffConfig, restartReachableFrom } from './restart.ts'
@@ -187,6 +188,8 @@ export interface MarketHost {
   loader: { entries(): Iterable<LoaderEntry> }
   plugin(plugin: unknown, config: unknown): { await(): Promise<unknown>; dispose(): Promise<unknown> | void }
   on?(event: string, callback: (payload: unknown) => void): () => void
+  /** Service lookup; the host context has it, test doubles may not. */
+  get?(name: string): unknown
   logger?: { info?(message: string): void; warn(message: string): void }
 }
 
@@ -280,6 +283,30 @@ export interface MarketConfig {
  * in frame the first reply always has to ask which one it was.
  */
 let cachedVersion: string | null = null
+
+/**
+ * Forget the version read from disk. Called when the routes unload: a module
+ * the host did not replace (its file did not change) stays loaded across an
+ * in-process reload (src/self-reload.ts), and the instance that comes next
+ * must report the package.json that is on disk now, not the one it started
+ * beside.
+ */
+export function forgetMarketVersion(): void {
+  cachedVersion = null
+}
+
+/**
+ * True only while this market is asking the host to swap in its own new build.
+ *
+ * The version a market reports must be the version of the CODE that is
+ * running. Any other reason this instance unloads (a settings change makes
+ * the host restart the entry) leaves the same code running, so the version
+ * read at first use stays true even though a newer package.json is on disk —
+ * forgetting it there would report the new version over the old code and
+ * hide exactly the mismatch the page needs to see.
+ */
+let swappingSelf = false
+
 export function marketVersion(): string {
   if (cachedVersion !== null) return cachedVersion
   try {
@@ -779,15 +806,16 @@ export function mountMarketRoutes(
    *
    * The HOST decides which doors exist; this only combines the user's
    * preferences, because a request handler cannot see the browser's slots.
-   * `sidebarEntry` defaults off while the two page tabs default on, so
-   * "every door closed" is expressible — and has to be refused before it
-   * reaches disk. A market with no entry can only be recovered by editing
+   * The Plugins page tab and the sidebar row default on; the settings page
+   * entry defaults off (it is the old door, kept for hosts without the other
+   * two — the browser shows it there anyway). "Every door closed" is still
+   * expressible, and has to be refused before it reaches disk. A market with no entry can only be recovered by editing
    * state.json or removing the package, which the card must never cause.
    */
   const entryDoors = (state: MarketState = marketState): { settingsSection: boolean; pluginsTab: boolean; sidebarEntry: boolean } => ({
-    settingsSection: state.settingsSection !== false,
+    settingsSection: state.settingsSection === true,
     pluginsTab: state.pluginsTab !== false,
-    sidebarEntry: state.sidebarEntry === true,
+    sidebarEntry: state.sidebarEntry !== false,
   })
   const closesEveryDoor = (doors: { settingsSection: boolean; pluginsTab: boolean; sidebarEntry: boolean }): boolean =>
     !doors.settingsSection && !doors.pluginsTab && !doors.sidebarEntry
@@ -3474,6 +3502,21 @@ export function mountMarketRoutes(
     region: () => region,
   }
 
+  /**
+   * In-process reload of the market itself (see src/self-reload.ts).
+   *
+   * Available when the host can replace modules (its HMR service, DSH 0.2.1
+   * and later) and the market is an installed package of this profile — a
+   * development checkout has no newer files on disk to switch to.
+   */
+  const selfPackageName = (): string | null =>
+    readInstalled(config.profile, activeProfileDir)['dsh-crate'] !== undefined ? 'dsh-crate' : null
+  const hostHmr = () => asHmr(host.get?.('hmr'))
+  const selfReloadAvailable = (): boolean =>
+    hostHmr() !== undefined && host.get?.('profileContext') !== undefined && selfPackageName() !== null
+  // Announced once the routes below are up; handlers read it lazily.
+  let instanceClaim: ReturnType<typeof claimInstance> | undefined
+
   const disposers = [
     // 页面打开：页面每次加载上报一次，服务端每天只保留第一次；立即返回，页面不等网络。
     registerRoute({
@@ -5929,7 +5972,9 @@ export function mountMarketRoutes(
           // by the user — the card explains a choice it made on their behalf
           // exactly once, so nobody has to wonder why downloads moved.
           regionAuto,
-          sidebarEntry: marketState.sidebarEntry === true,
+          sidebarEntry: marketState.sidebarEntry !== false,
+          // Whether DSH Desktop owns this process (the market cannot restart it).
+          desktopHost: config.desktopHost === true,
           restart: restartAllowed(config),
           // Named so the UI can say WHY the button is gone. A blank
           // "no restart button" is the state #229 reported as broken.
@@ -5948,6 +5993,11 @@ export function mountMarketRoutes(
           // card hides a remove button that could only ever answer 403.
           selfUninstallReachable: selfUninstallReachableFrom(request),
           selfManaged: installed['dsh-crate'] !== undefined,
+          // Whether POST /dsh-crate/reload-self can swap a newer build of the
+          // market in without restarting DSH. The page that has just loaded a
+          // newer client than this server reads it to choose between "reload
+          // the market" and "restart DSH".
+          selfReload: selfReloadAvailable(),
           // Whether the host took the market's settings namespace (#677).
           // `unsupported-by-host` is 0.1.7 and newer, where settings come from
           // a plugin's Config schema and no third-party namespace is served —
@@ -8129,7 +8179,8 @@ export function mountMarketRoutes(
       handler: async (request, response) => {
         if (request.method === 'GET') {
           sendJson(response, 200, {
-            enabled: marketState.sidebarEntry === true,
+            // Shown unless turned off (the default changed from off to on).
+            enabled: marketState.sidebarEntry !== false,
             // Absent means nobody has ever chosen. On a host with no settings
             // page the row is then shown by default, because it is the only
             // way into the market (#846).
@@ -8192,7 +8243,13 @@ export function mountMarketRoutes(
       handler: async (request, response) => {
         if (request.method === 'GET') {
           const doors = entryDoors()
-          sendJson(response, 200, { settingsSection: doors.settingsSection, pluginsTab: doors.pluginsTab })
+          sendJson(response, 200, {
+            settingsSection: doors.settingsSection,
+            pluginsTab: doors.pluginsTab,
+            // Unchosen, the browser still shows the settings entry when it is
+            // the host's only door.
+            settingsSectionChosen: typeof marketState.settingsSection === 'boolean',
+          })
           return
         }
         if (request.method !== 'POST') {
@@ -8453,6 +8510,52 @@ export function mountMarketRoutes(
           })
         } catch (error) {
           sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    }),
+
+    registerRoute({
+      kind: 'exact',
+      path: '/dsh-crate/reload-self',
+      handler: async (request, response) => {
+        if (request.method !== 'POST') {
+          response.writeHead(405, { allow: 'POST' })
+          response.end()
+          return
+        }
+        if (!sameOrigin(request)) {
+          sendJson(response, 403, { error: 'untrusted origin' })
+          return
+        }
+        if (restarting) {
+          sendJson(response, 409, { busy: true, error: 'restart already scheduled' })
+          return
+        }
+        try {
+          // Under the same lock as every other change: a swap ends the instance
+          // that would have finished a running install, so none may be running,
+          // and none may start while it happens. A second request answers 409.
+          const outcome = await withMutationLock(response, 'write', async (): Promise<SelfReloadOutcome> => {
+            const name = selfPackageName()
+            swappingSelf = true
+            try {
+              return await reloadSelf({
+                hmr: hostHmr,
+                runningVersion: marketVersion(),
+                installedVersion: () => name === null ? null : readInstalledVersion(config.profile, name, activeProfileDir),
+                packageDir: () => join(activeProfileDir, 'node_modules', name ?? 'dsh-crate'),
+                instanceId: instanceClaim?.id ?? '',
+                log: (level, detail) => logEvent(level, 'reload', detail),
+              })
+            } finally { swappingSelf = false }
+          })
+          if (outcome === null) return
+          const reply = selfReloadReply(outcome)
+          sendJson(response, reply.status, reply.body)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          logEvent('error', 'reload', `route error: ${message}`)
+          sendJson(response, 500, { ok: false, error: message })
         }
       },
     }),
@@ -9799,8 +9902,12 @@ export function mountMarketRoutes(
 
   startCheckoutRepair()
   const stopHeartbeat = startHeartbeat(telemetryOptions)
+  instanceClaim = claimInstance(marketVersion())
   return async () => {
     disposed = true
+    instanceClaim?.release()
+    if (swappingSelf) forgetMarketVersion()
+    resetHotState()
     stopHeartbeat()
     checkoutRepairRound = undefined
     if (checkoutRepairTimer !== undefined) clearTimeout(checkoutRepairTimer)
