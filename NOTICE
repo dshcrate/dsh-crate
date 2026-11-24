@@ -1,0 +1,9 @@
+dsh-crate
+Copyright (c) 2026 fkysly and dsh-market contributors
+Copyright (c) 2026 dsh-crate contributors
+
+This project is a modified derivative of dsh-market
+(https://github.com/dsh-market/dsh-market), with its catalog source replaced
+by dshcrate. The original MIT notice is retained as the MIT license requires.
+
+The full MIT license text is in the LICENSE file.
