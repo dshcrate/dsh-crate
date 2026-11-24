@@ -21,6 +21,8 @@ import {
 } from './market-data.ts'
 import { drop, enqueue, type OperationRecord, patch as patchRecord } from './operations.ts'
 import { blockedSessions, readRecentFlag, withoutHostProjection, writeRecentFlag } from './market-helpers.ts'
+import { withSponsoredFirst } from './sponsored-plugins.ts'
+import { SHOW_SPONSORS } from './sponsors.generated.ts'
 import { DEFAULT_PAGE_SIZE, RECENT_COLLAPSED_KEY, RECENT_HIDDEN_KEY, RECENT_STRIP_LIMIT } from './market-constants.ts'
 import { usePagination, useShownCount } from './MarketListControls.tsx'
 import { discoveryScan } from './MarketImages.tsx'
@@ -121,13 +123,15 @@ export function useMarketInstall(c: MarketInstallIn) {
   // screen, so switching to Stars looked like it did nothing (#1016). The
   // block is a front-page teaser for the unfiltered default view — one more
   // narrowing, alongside query, category and time range.
-  const recentlyAdded = useMemo(
-    () => data === null || tab !== 'discover' || q.trim() !== '' || cat !== 'all' || source !== 'all' || timeRange !== 'all'
-      || sortField !== 'downloads' || sortDir !== 'desc'
-      ? []
-      : visiblePlugins(data.plugins, {
-          category: 'all', query: '', lang, sort: 'downloads-desc', sinceDays: 7,
-        }).filter(plugin => !pluginBlocked(plugin)),
+  const recentlyAdded = useMemo(() => {
+    if (data === null || tab !== 'discover' || q.trim() !== '' || cat !== 'all' || source !== 'all' || timeRange !== 'all'
+      || sortField !== 'downloads' || sortDir !== 'desc') return []
+    const recent = visiblePlugins(data.plugins, {
+      category: 'all', query: '', lang, sort: 'downloads-desc', sinceDays: 7,
+    }).filter(plugin => !pluginBlocked(plugin))
+    // 本仓默认关闭赞助商：开关关闭时连赞助商插件置顶也一起关闭，不能只隐藏 logo。
+    return SHOW_SPONSORS ? withSponsoredFirst(data.plugins, recent, plugin => !pluginBlocked(plugin)) : recent
+  },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [data, tab, q, cat, source, timeRange, sortField, sortDir, lang, blockedNameSet, installed, repoIdentities, repoHints])
   const [recentCollapsed, setRecentCollapsed] = useState(() => readRecentFlag(RECENT_COLLAPSED_KEY))
