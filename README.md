@@ -10,6 +10,7 @@ English | [中文](README.zh.md)
 [![release](https://img.shields.io/github/v/release/dshcrate/dsh-crate)](https://github.com/dshcrate/dsh-crate/releases)
 [![npm](https://img.shields.io/npm/v/dsh-crate)](https://www.npmjs.com/package/dsh-crate)
 [![downloads](https://img.shields.io/npm/dm/dsh-crate)](https://www.npmjs.com/package/dsh-crate)
+[![entries](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdshcrate.com%2Fdata%2Fmeta.json&query=%24.total&label=entries&color=blue)](https://dshcrate.com)
 [![stars](https://img.shields.io/github/stars/dshcrate/dsh-crate?style=flat)](https://github.com/dshcrate/dsh-crate)
 [![license](https://img.shields.io/github/license/dshcrate/dsh-crate)](LICENSE)
 
