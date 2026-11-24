@@ -7,7 +7,12 @@ export default defineConfig({
   test: {
     // Strips the developer's proxy variables first: with one exported, the
     // fetch stubs below marketFetch never see a request (tests/setup/no-proxy.ts).
-    setupFiles: ['tests/setup/no-proxy.ts', 'tests/setup/undici-fetch.ts', 'tests/setup/storage-globals.ts'],
+    setupFiles: [
+      'tests/setup/no-proxy.ts',
+      'tests/setup/undici-fetch.ts',
+      'tests/setup/jsdom-storage.ts',
+      'tests/setup/storage-globals.ts',
+    ],
     // jsdom only exposes localStorage/sessionStorage on a real origin.
     environmentOptions: { jsdom: { url: 'https://localhost/' } },
     include: ['tests/**/*.spec.ts', 'tests/**/*.spec.tsx'],

@@ -15,6 +15,7 @@ import { GithubRoutedImg, MarketSection, OwnerAvatar, resetHostCompatibilityCach
 import css from '../../src/client/Market.module.css'
 import { DISMISSED_HOST_STORAGE_KEY, resetDismissedHostCache } from '../../src/client/dismissed-host.ts'
 import { downloadStatsText } from '../../src/client/download-stats.ts'
+import { FindResultView } from '../../src/client/FindPluginCard.tsx'
 import { createHostNavigation } from '../../src/client/host-navigation.ts'
 import { OperationsPanel } from '../../src/client/OperationsPanel.tsx'
 import { SEARCH_DELAY_MS } from '../../src/client/SearchInput.tsx'
@@ -301,6 +302,59 @@ function props() {
     themeStore: { subscribe: () => () => {}, getSnapshot: () => null },
   }
 }
+
+describe('/find-plugin installation source (#1290)', () => {
+  const sameName = { ...REGISTRY.plugins[0]!, owner: 'same-name-fork', url: 'https://github.com/same-name-fork/dsh-loop', npm: '@same-name-fork/dsh-loop' }
+  const pick = { ...sameName, why: 'Fits this task', categories: ['Tools'], description: 'Selected repo', downloads: null }
+  const result = { intro: 'Found one', request: 'run a loop', picks: [pick], model: 'fixture' }
+
+  it('opens the same repository as direct install, even when the catalog loads after navigation', async () => {
+    stubFetch({
+      '/dsh-crate/registry': { source: 'live', registry: { ...REGISTRY, count: 4, plugins: [...REGISTRY.plugins, sameName] } },
+      '/dsh-crate/install': { ok: true },
+    })
+    const navigation = createHostNavigation()
+    navigation.attach({ openList: () => {}, openBundle: () => {} })
+    const card = <FindResultView result={{ ...result, selectionVersion: 2 }} t={props().t} navigation={navigation} />
+    render(<>{card}<button role="tab" id="test-dsh-crate">Plugin Crate</button></>)
+
+    fireEvent.click(screen.getByRole('button', { name: en.fpInstallHere }))
+    expect(screen.getByText(sameName.npm)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: en.fpConfirmInstall }))
+    await waitFor(() => expect(fetchCalls.filter(call => call.path === '/dsh-crate/install').map(call => call.body)).toEqual([{ url: sameName.url }]))
+
+    fireEvent.click(screen.getByRole('button', { name: en.fpOpenMarket }))
+    render(<MarketSection {...props()} />)
+    const dialog = within(await screen.findByRole('dialog', { name: `${en.confirmTitle} ${pick.name}?` }))
+    expect(dialog.getByText(sameName.owner)).toBeTruthy()
+    fireEvent.click(dialog.getByRole('button', { name: en.confirmInstall }))
+    await waitFor(() => expect(fetchCalls.filter(call => call.path === '/dsh-crate/install').map(call => call.body)).toEqual([
+      { url: sameName.url }, { url: sameName.url },
+    ]))
+  })
+
+  it('does not open a same-name replacement when the selected repository is missing', async () => {
+    stubFetch()
+    const navigation = createHostNavigation()
+    navigation.attach({ openList: () => {}, openBundle: () => {} })
+    const card = <FindResultView result={{ ...result, selectionVersion: 2 }} t={props().t} navigation={navigation} />
+    render(<>{card}<button role="tab" id="test-dsh-crate">Plugin Crate</button><MarketSection {...props()} /></>)
+
+    fireEvent.click(screen.getByRole('button', { name: en.fpOpenMarket }))
+    expect(await screen.findByText(en.fpOpenUnavailable)).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(fetchCalls.some(call => call.path === '/dsh-crate/install')).toBe(false)
+  })
+
+  it('keeps older chat cards readable and asks for a fresh result before installing', () => {
+    render(<FindResultView result={result} t={props().t} />)
+    expect(screen.getByText(pick.why)).toBeTruthy()
+    expect(screen.getByText(en.fpSearchAgain)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: en.fpInstallHere })).toBeNull()
+    expect(screen.queryByRole('button', { name: en.fpOpenMarket })).toBeNull()
+    expect(screen.queryByRole('button', { name: en.fpCopy })).toBeNull()
+  })
+})
 
 /**
  * Card names in VISUAL (ranked) order, reassembled from the masonry columns.
@@ -3209,7 +3263,7 @@ describe('MarketSection (jsdom)', () => {
 
   it('routes update-notes images through raw candidates instead of connecting directly (#1070)', () => {
     setGithubRoutes({ raw: ['https://bad.example', 'https://good.example', null], avatar: [null] })
-    const src = 'https://raw.githubusercontent.com/dshcrate/dshcrate/main/shot.png'
+    const src = 'https://raw.githubusercontent.com/dshcrate/dsh-crate/main/shot.png'
     const first = render(<GithubRoutedImg src={src} alt="shot" />)
     let img = first.container.querySelector('img')!
     expect(img.src).toContain(`https://bad.example/${src}`)
@@ -5221,8 +5275,9 @@ describe('lost install progress (config page reopened)', () => {
       }))
       render(<MarketSection {...props()} />)
       await vi.waitFor(() => { screen.getByRole('button', { name: en.installing }) })
-      await vi.waitFor(() => { screen.getByRole('button', { name: `${en.opInstalling} 1/1` }) })
-      fireEvent.click(screen.getByRole('button', { name: `${en.opInstalling} 1/1` }))
+      // Restoring the card's busy state can finish before the catalog names the task.
+      const taskButton = await vi.waitFor(() => screen.getByRole('button', { name: `${en.opInstalling} 1/1` }))
+      fireEvent.click(taskButton)
       const panel = document.querySelector('[class*="opPanel"]')
       expect(panel, 'the Tasks panel did not open').toBeTruthy()
       expect(panel!.textContent).toContain('dsh-loop')
@@ -5614,7 +5669,8 @@ describe('#60 enable/disable switches in the Installed tab', () => {
         disabled: [],
         groups: {},
         groupOrder: [],
-        activation: { 'dsh-crate': { state: 'live', reasons: [], bundle: true, hot: true },
+        activation: {
+          'dsh-crate': { state: 'live', reasons: [], bundle: true, hot: true },
           'dsh-loop': { state: 'live', reasons: [], bundle: true, hot: true },
         },
       },
@@ -10063,11 +10119,13 @@ describe('a shell that runs the host as its child process owns the restart', () 
 })
 
 describe('boot-scoped update reminder dismissals (#419)', () => {
-  const installed = { 'dsh-crate': '^1.38.0',
+  const installed = {
+    'dsh-crate': '^1.38.0',
     'dsh-loop': '^1.0.0',
     'dsh-notify': '^1.0.0',
   }
-  const updateStatuses = { 'dsh-crate': { kind: 'npm', current: '1.38.0', latest: '1.39.0', updateAvailable: true },
+  const updateStatuses = {
+    'dsh-crate': { kind: 'npm', current: '1.38.0', latest: '1.39.0', updateAvailable: true },
     'dsh-loop': { kind: 'npm', current: '1.0.0', latest: '1.1.0', updateAvailable: true },
     'dsh-notify': { kind: 'npm', current: '1.0.0', latest: '1.1.0', updateAvailable: true },
   }

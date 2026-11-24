@@ -302,8 +302,8 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
           {/* Sponsors live in the spacer. It never shrinks below the mark, so
               when the row has no room the spacer (and the buttons after it)
               moves to the next line instead of hiding a sponsor. */}
-          <span className={surface === 'plugins' ? `${css.grow} ${css.sponsorSlot}` : css.grow}>
-            {SHOW_SPONSORS && surface === 'plugins' && <SponsorMark lang={lang} t={t} />}
+          <span className={`${css.grow} ${css.sponsorSlot}`}>
+            {SHOW_SPONSORS && <SponsorMark lang={lang} t={t} />}
           </span>
         </div>
         {!marketGone && updateCheckFailed && (

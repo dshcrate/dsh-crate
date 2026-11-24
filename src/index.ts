@@ -9,7 +9,7 @@ import { dirname, isAbsolute } from 'node:path'
 import { createDesktopPluginRuntime, setHostPackageManager, type DesktopPnpmLike, type HostPackageManager } from './dsh-cli.ts'
 import { createOfficialDesktopRuntime, type OfficialPluginManagerLike } from './official-desktop.ts'
 import { isDshProfileName, profileDir } from './profile.ts'
-import { setRequestGateSource, setTrustedHostsSource } from './http.ts'
+import { admissionFacts, setRequestGateSource, setTrustedHostsSource } from './http.ts'
 import { setLauncherInstallAnchorSource } from './dsh-install.ts'
 import { mountMarketRoutes, type HostPluginActivation, type MarketConfig, type MarketHost } from './routes.ts'
 import { installDesktopMarketSettings, installMarketSettings } from './settings.ts'
@@ -242,14 +242,46 @@ export function useTrustedHosts(ctx: Context): () => void {
     }
     return hosts
   })
+  // The gate below calls `connection.admit`, which verifies the browser login
+  // through `connection.authentication`. Cordis resolves a service property
+  // through the context the service was READ from, not the one that provided
+  // it: reading the connection from this plugin's own context — which
+  // declares `webServer` and `loader`, never the registry — made `admit`
+  // throw `cannot get property "connection.authentication" without inject`.
+  // The fence turns any throw into 403, so every route answered 403 for every
+  // browser, signed in or not, on every host that replaced `requestRejection`
+  // with `admit` (#1299).
+  //
+  // Declaring the registry is what makes that read legal, and the declared
+  // scope is what the call has to be made from. A host that has no registry —
+  // every release before `admit` existed — leaves the scope cold, and the
+  // source below then reads the connection from here exactly as it always
+  // did: `requestRejection` needs no such declaration. A host that has one
+  // makes both branches reachable, which is the whole point.
+  let gateCtx: Context | undefined
+  const gateScope = ctx.inject(['connection', 'connection.authentication'], (loginCtx: Context) => {
+    gateCtx = loginCtx
+    return () => { if (gateCtx === loginCtx) gateCtx = undefined }
+  })
   // The same service carries the host's request gate (#603): its fence plus
   // its browser login, the check its own API runs. Read per request for the
   // same reason as the authorities above.
   const previousGate = setRequestGateSource(() => {
-    const connection = ctx.get('connection') as { requestRejection?: unknown } | undefined
+    const connection = (gateCtx ?? ctx).get('connection') as { requestRejection?: unknown; admit?: unknown } | undefined
     const gate = connection?.requestRejection
-    return typeof gate === 'function'
-      ? (request => (gate as (request: unknown) => number | undefined).call(connection, request))
+    if (typeof gate === 'function') {
+      return request => (gate as (request: unknown) => number | undefined).call(connection, request)
+    }
+    // DSH 0.2.3 removed requestRejection for `admit(request)`: the Host/Origin
+    // fence, then the registered credential providers, answering `{ peer }` or
+    // `{ rejection: status }` (#1289). Without this the gate quietly became a
+    // no-op on those hosts.
+    const admit = connection?.admit
+    return typeof admit === 'function'
+      ? (request => {
+        const answer = (admit as (facts: unknown) => { rejection?: unknown } | undefined).call(connection, admissionFacts(request))
+        return typeof answer?.rejection === 'number' ? answer.rejection : answer === undefined ? 403 : undefined
+      })
       : undefined
   })
   // The setter returns the PREVIOUS source, not a restore closure — the same
@@ -257,6 +289,11 @@ export function useTrustedHosts(ctx: Context): () => void {
   return () => {
     setTrustedHostsSource(previous)
     setRequestGateSource(previousGate)
+    // The scoped fiber holds the only declaration that made the gate readable;
+    // keeping it alive after the source is pulled back would leave a dependency
+    // on a host that may never provide it.
+    void Promise.resolve(gateScope.dispose()).catch(() => {})
+    gateCtx = undefined
   }
 }
 

@@ -105,6 +105,22 @@ npm run build:client
 - `tsdown.config.ts` 的 `const id` 必须是 `dsh-crate`；上游 v1.80 是 `dshmarket`，构建后 `client/client.js` 头必须是 `window.__ModuleLoader__.load({ id: "dsh-crate"`，否则 normalize 会直接报错
 - v1.79 起入口默认值改为：设置页入口默认关闭，Plugins 页签与侧栏默认开启；这是上游产品决定，不要无理由改回
 - v1.80 的 self-reload 路由是 `/dsh-crate/reload-self`，安装包回退名是 `dsh-crate`；`src/self-reload.ts`、`src/client/client-version.ts`、`AddMenuMarketItem.tsx` 同步后要按本地品牌检查
+- v1.80.1 起 e2e 不再假设设置页入口始终可见：`tests/web/scaffold.ts` 先走侧栏/Plugins 页签，只有确实需要设置页时才调用 `enableMarketSettings()`；`tests/catalogs.spec.ts` 用原生路径 + `pathToFileURL`，Windows 不再依赖 POSIX 字面量
+- v1.80.3 起宿主请求网关优先用 `connection.admit`（`src/index.ts` 的 `gateScope` + `src/http.ts` 的 `admissionFacts`）；这段必须逐块合并，丢掉会让 0.2.3 宿主所有市场路由 403
+- v1.80.3 新增 `tests/setup/jsdom-storage.ts`（Node 26 `localStorage` 遮蔽修复）；本仓原有的 `tests/setup/storage-globals.ts` 仍保留，`vitest.config.ts` 两者都挂，`jsdom-storage` 在前
+- v1.80.2/3 的赞助商数据取上游 `sponsors.json` 与 `assets/partners/modelgo-*.svg`，但 `src/client/sponsors.generated.ts` 必须保留 `SHOW_SPONSORS = false`；`tests/web/sponsor-sidebar.e2e.ts` 在本地按 `SHOW_SPONSORS` 跳过，否则必红
+- 外部赞助商 URL（如 `https://dsh-market.hualong-ai.com/`、`utm_source=dsh-market`）不做品牌回写；只回写代码标识、路由与产品名
+
+## 同步后品牌自检（每次必跑）
+
+2026-11-24 同步 v1.80.3 时漏掉过下面几处，均已补回；下次同步按这张表逐项过：
+
+- [ ] `grep -rn "plugin market" src/find-plugin.ts src/client tests/web --include='*.ts' --include='*.tsx'`：只允许 `tests/web/desktop-settings.e2e.ts` 的历史兼容正则；`src/find-plugin.ts` 的系统提示词、e2e describe 标题不能留小写上游品牌。
+- [ ] `grep -rn "name !== 'dsh-crate' && name !== 'dsh-crate'" src tests`：上游两个别名（`dsh-market` / `dshmarket`）回写成同一个后，同一表达式里会出现恒假或重复条件；合并后改成单个判断。不同字段（如 `plugin.npm` 与 `plugin.name`）各判一次是正常的，不算重复。
+- [ ] `grep -rn "awesome-dsh-plugin" src tests --include='*.ts' --include='*.tsx'`：整文件取上游会把本地注释退回上游目录名；恢复 `dshcrate` 说明后重建 `client.js`，产物里不能再出现。
+- [ ] 新增文案/提示词逐个看品牌词：`Plugin market`、单独的 `market`、`插件市场` 要改成 `Plugin Crate`、`插件箱子`；brand-guard 18 只拦大写 `Plugin Market`/`插件市场`，拦不住小写和单个 `market`。
+- [ ] `src/client/sponsors.generated.ts` 头注不能照抄上游 `scripts/sponsors.mjs`（本仓没有该脚本）；写明从上游同步、手工维护、开关位置。
+- [ ] 最后 `grep -c "dshmarket\|dsh-market\|Plugin Market\|插件市场\|awesome-dsh-plugin" client/client.js`，期望 0；外部赞助商 URL 只允许留在 `sponsors.json` / `sponsors.generated.ts` 的数据里，并已被 `SHOW_SPONSORS=false` 树摇掉。
 
 ## 同步记录
 
@@ -123,5 +139,6 @@ npm run build:client
 | 2026-11-21 | v1.73.25 → v1.74.0（含 `fb38e08`、`a05f16d`） | `196ace9`（紧凑头部、卡片标题进详情、两行卡片元信息、最近收录翻页箭头）、`b05db65`（赞助商华龙算力）、`9aeab86`（收藏/主题/隐藏页目录重试）、`b9438a7`（发布等待期只标注被拦的更新）、`fb38e08`（测试先打开已安装页）、`a05f16d`（搜索框 × 保留焦点） | 本次提交 | 版本号 `4c5b8f6`/`76f4132`、README 与站点截图 `899c0f8`/`acad04b`/`e6a2b4b`；保护文件逐块合并，设置页吸顶与箱子 logo 回贴，`locales.ts` 回到本地 HEAD 再补新键，赞助商默认关闭，品牌串与测试断言同步修正，`client.js` 本地重建 |
 | 2026-11-21 | v1.74.0 → v1.75.0（`upstream/main` `f763bf6`） | `54de7b2`（Installed 页显示市场自身新版本提示：版本号、重启生效说明、更新按钮、按版本关闭、页签圆点） | 本次提交 | `4f449ec` 私有遥测看板与 `f763bf6` 删除看板净变化为 0、`6fd478f` 版本号、`SECURITY.md` 看板保留说明；保护文件逐块合并，保留 `SHOW_SPONSORS=false`、投稿链接与仓库链接修正，`locales.ts` 补三语 `marketOfferBanner`/`marketOfferHint`，`client.js` 本地重建 |
 | 2026-11-23 | v1.78.0 → v1.80.0（`upstream/main` `8747e07`） | `c196186`（入口默认值、Plugins 页 logo 标题、Add plugin 菜单）、`36bf883`（自身更新后旧服务端提示）、`f105db3`（reload-self 热替换服务端）、`9673b89`（reload-self 返回 `{outcome,error}` 并保持版本真实）、`0f7bf14`（旧服务端横幅等待 /status、错误文案、Apply now）、`d610293`（e2e 公共构建 helper 与横幅截图） | 本次提交 | `db03a60`/`8747e07` 仅版本号；8 个保护文件三方合并，保留 `dsh-crate` 身份、设置页吸顶、顶部 logo 15px+右移 2px、投稿 `/submit`、`SHOW_SPONSORS=false`、giscus 配置；`tsdown` loader id 回写 `dsh-crate`，reload 路由 `/dsh-crate/reload-self`，包回退名 `dsh-crate`；`client.js` 与 `lib/` 本地重建；测试基线 4,386 通过 / 3 跳过 |
+| 2026-11-24 | v1.80.0 → v1.80.3（`upstream/main` `6ef6055`） | `ae3402a`（Windows 原生目录路径、e2e 可见入口）、`5dd2017`（self-reload e2e 不阻塞 fixture）、`8f00457`（恢复安装任务等待）、`1952232`（AI 结果保留精确来源）、`cac579b`（AI 用 DSH 模型默认值）、`fa51888`（`engines.dsh` 覆盖宿主 peer）、`f4b70a8`（Installed 行不再误报 on）、`b3689dd`（THEMING.md）、`29dc1ee` + `e576c13`（`connection.admit` 网关与登录注册表）、`48c3e6d`（monorepo 子包 commit）、`cab3bd8`（离线包新导入替换旧包）、`bbe4713`（jsdom localStorage 修复）、`62940e4`/`6ef6055`（ModelGo 与侧栏赞助位） | 本次提交 | 上游站点/`scripts/sponsors.mjs`/`ENTERPRISE*`（本仓无站点链路）；版本号取本地 `0.6.3`；保护文件逐块合并，保留 `dsh-crate` 身份、logo 15px+右移 2px、投稿 `/submit`、`SHOW_SPONSORS=false`、giscus、设置页吸顶；赞助商数据取上游但渲染开关保持关闭，`sponsor-sidebar.e2e.ts` 本地跳过；`client.js` 与 `lib/` 本地重建 |
 
 新的同步完成后，在表里追加一行：上游版本范围、采纳的 commit、对应的本地 commit、跳过项及原因。
