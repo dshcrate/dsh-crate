@@ -6,6 +6,13 @@
 
 [English](README.md) | 中文
 
+[![ci](https://github.com/dshcrate/dsh-crate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dshcrate/dsh-crate/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/dshcrate/dsh-crate)](https://github.com/dshcrate/dsh-crate/releases)
+[![npm](https://img.shields.io/npm/v/dsh-crate)](https://www.npmjs.com/package/dsh-crate)
+[![downloads](https://img.shields.io/npm/dm/dsh-crate)](https://www.npmjs.com/package/dsh-crate)
+[![stars](https://img.shields.io/github/stars/dshcrate/dsh-crate?style=flat)](https://github.com/dshcrate/dsh-crate)
+[![license](https://img.shields.io/github/license/dshcrate/dsh-crate)](LICENSE)
+
 **插件箱子**：装在 DeepSeek Harness 里的插件市场。不用离开 DSH，也不用去翻
 GitHub 话题、辨认哪些仓库真能装、把安装命令手抄到终端——打开插件页，逛目录、
 看简介，点一下装好。

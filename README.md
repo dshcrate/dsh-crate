@@ -6,6 +6,13 @@
 
 English | [中文](README.zh.md)
 
+[![ci](https://github.com/dshcrate/dsh-crate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dshcrate/dsh-crate/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/dshcrate/dsh-crate)](https://github.com/dshcrate/dsh-crate/releases)
+[![npm](https://img.shields.io/npm/v/dsh-crate)](https://www.npmjs.com/package/dsh-crate)
+[![downloads](https://img.shields.io/npm/dm/dsh-crate)](https://www.npmjs.com/package/dsh-crate)
+[![stars](https://img.shields.io/github/stars/dshcrate/dsh-crate?style=flat)](https://github.com/dshcrate/dsh-crate)
+[![license](https://img.shields.io/github/license/dshcrate/dsh-crate)](LICENSE)
+
 **Plugin Crate**: a plugin market that lives inside DeepSeek Harness. No more
 digging through GitHub topics, guessing which repos actually install, and
 copy-pasting commands into a terminal — open the Plugins page, browse, read, and
