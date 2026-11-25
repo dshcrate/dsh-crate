@@ -17,6 +17,7 @@
     { "path": "src/client/sponsors.generated.ts", "why": "赞助商开关 SHOW_SPONSORS=false", "merge": "manual" },
     { "path": "src/client/MarketLogo.tsx", "why": "箱子 logo、inset 与扫光", "merge": "manual" },
     { "path": "src/client/Market.module.css", "why": "滚动、吸顶、导航背景色、底部留白", "merge": "manual" },
+    { "path": "src/client/MarketLayout.tsx", "why": "Masonry 零高度时保持交替分列的本地保护", "merge": "manual" },
     { "path": "src/client/market-mark.ts", "why": "四格标记几何常量", "merge": "manual" },
     { "path": "src/client/settings-nav-icon.ts", "why": "导航图标与选择器", "merge": "manual" },
     { "path": "client/client.js", "why": "客户端构建产物", "merge": "rebuild" },

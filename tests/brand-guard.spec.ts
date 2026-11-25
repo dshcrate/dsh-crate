@@ -3,7 +3,7 @@
  *
  * 2026-11-07 同步上游 dsh-market v1.73.14 时，界面层整包覆盖了本地品牌文案，
  * 设置卡片标题退回上游措辞，e2e 断言随即 6/9 leg 变红。这里把身份、数据源、
- * 品牌文案、视觉几何、布局滚动、导航图标六组关键值钉住，随 `npm test` 运行，只读不写。
+ * 品牌文案、视觉几何、布局滚动、导航图标、赞助商开关七组关键值钉住，随 `npm test` 运行，只读不写。
  *
  * 维护规则：新增品牌文案键时，同一次提交里补上对应断言；上游同步后若护栏
  * 变红，说明定制被覆盖，按清单逐项恢复。
@@ -258,5 +258,12 @@ describe('F. 导航图标定制', () => {
     const source = readSrc('client/settings-nav-icon.ts')
     expect(source).toContain("row.setAttribute(NAV_ICON_MARKER, '')")
     expect(source).toContain('row.removeAttribute(NAV_ICON_MARKER)')
+  })
+})
+
+describe('G. 赞助商开关', () => {
+  it('33. 赞助商关闭时，最近收录的赞助商插件置顶也一起关闭', () => {
+    // 只隐藏头部 logo 不够：withSponsoredFirst 会把赞助商插件固定在「最近收录」最前面。
+    expect(readSrc('client/market-install.ts')).toMatch(/SHOW_SPONSORS\s*\?\s*withSponsoredFirst\(/u)
   })
 })

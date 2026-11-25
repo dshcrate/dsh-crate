@@ -8,7 +8,7 @@
  * same-origin POSTs and only sources present in the curated registry.
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -50,7 +50,7 @@ import {
   hasUnsettledPackageRun, loadHostProfileLock, PendingCheckoutLinks, withIdleProfile,
   type CheckoutRecoveryEntry, type CheckoutRecoveryStatus, type PendingCheckoutLink,
 } from './pending-checkout-links.ts'
-import { addProfileBundle, bundleExpressionRowIds, bundleOptOutRowIds, bundlePatchInsertedIds, bundlesDroppedFromProfile, declareProfileDependency, dropFromManifest, dropReleaseAgeExcludes, generationManagedNames, hasLoadableEntry, holdsNativeAddon, INBOX_BUNDLES, isDshProfileName, profileDir, readDependencyOwners, readGitResolutionCommit, readInstalled, readInstalledManifest, readInstalledPackageName, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readProfileBundles, readProfileManifestSnapshot, removeProfileBundle, parsePatchRows, restoreProfileManifest, restoreRemovedProfileBundle, setAllowBuilds, shippedInsertedRowIds, type ProfileManifestSnapshot } from './profile.ts'
+import { addProfileBundle, bundleExpressionRowIds, bundleGroupGateRowIds, bundleOptOutRowIds, bundlePatchInsertedIds, bundlesDroppedFromProfile, declareProfileDependency, dropFromManifest, dropReleaseAgeExcludes, generationManagedNames, hasLoadableEntry, holdsNativeAddon, INBOX_BUNDLES, isDshProfileName, profileDir, readDependencyOwners, readGitResolutionCommit, readInstalled, readInstalledManifest, readInstalledPackageName, readInstalledRepoEvidence, readInstalledVersion, readLockCommits, readProfileBundles, readProfileManifestSnapshot, removeProfileBundle, parsePatchRows, restoreProfileManifest, restoreRemovedProfileBundle, setAllowBuilds, shippedInsertedRowIds, type ProfileManifestSnapshot } from './profile.ts'
 import { assessProfile, classifyPeer, introducedDuplicateNames, introducedRisks, type CompatibilityRisk } from './compatibility.ts'
 import { runningAgentIds, type AgentsLookup } from './agents.ts'
 import { DrainCoordinator, DrainNoop, DrainRefusal, type DrainExecutionResult, type DrainIntent, type DrainMutationGate } from './drain.ts'
@@ -113,6 +113,8 @@ const DISCOVERY_RETRY_MS = 30_000
 type DiscoveryVerdict = HostCompatibility & { retryAfterMs?: number; catalogChanged?: true }
 type DiscoveryPlugin = RegistryPlugin & { compatibilityRevision?: string }
 type DiscoveryCatalog = Omit<Registry, 'plugins'> & { plugins: DiscoveryPlugin[] }
+const CATALOG_PAGE_SIZE = 256
+const CATALOG_SNAPSHOT_TTL_MS = 10 * 60_000
 
 /** These revisions describe the server's catalog, independently of what its source includes. */
 const discoveryCatalogs = new WeakMap<Registry, {
@@ -622,6 +624,7 @@ export function mountMarketRoutes(
   hostActivation?: HostPluginActivation,
 ): () => Promise<void> {
   let disposed = false
+  const catalogSnapshots = new Map<string, { registry: DiscoveryCatalog; expiresAt: number }>()
   // An ordinary profile must resolve under DSH_HOME by the same rules as the
   // DSH CLI. A host-authoritative explicit directory (DSH Desktop) does not
   // derive a path from this display/profile name.
@@ -1525,7 +1528,15 @@ export function mountMarketRoutes(
     const allOff = choices !== null && choices.ownOff.size === componentNames.size
     // Old market builds stored only a state flag and unmarked, standalone
     // rows. Keep their ON path for that otherwise indistinguishable format.
-    const userAllOff = allOff && !(wasDisabled && choices.legacyAllOff)
+    // A literal `disabled: true` on a `group: true` row the bundle gates with
+    // an expression (as dsh-mnemon ships) is never the user's choice on the
+    // plugins page, which toggles the components under the group and reports
+    // the group's literal "saved but overridden". An older market wrote it when it switched the package off, so it
+    // is residue to clean, and sending the user to the page that cannot help is
+    // the dead end #1305 reported.
+    const userPatchDisables = allOff ? readUserPatchState(userPatchPath).disables : []
+    const gateHeldShut = bundleGroupGateRowIds(packageDir).some(rowId => userPatchDisables.includes(rowId))
+    const userAllOff = allOff && !(wasDisabled && choices.legacyAllOff) && !gateHeldShut
     const initial: LayerSwitch = {
       ok: true, reason: undefined, patchRows: componentRows,
       patchWrite: null, carrierRows, isCarrier, bundleSwitch: { ok: true, reason: null },
@@ -4362,12 +4373,52 @@ export function mountMarketRoutes(
         }
         try {
           try {
-            const registry = await loadRegistry()
-            sendJson(response, 200, {
-              registry: discoveryCatalog(registry).response,
-              ...(Object.keys(clientPolicy()).length > 0 ? { policy: clientPolicy() } : {}),
-              hostVersion: dshHostInfo()?.version ?? null,
-            })
+            const query = new URL(request.url ?? '/', 'http://localhost').searchParams
+            const pageText = query.get('page')
+            const sendCatalog = (registry: DiscoveryCatalog, paging?: { snapshot: string; page: number; pages: number }) => {
+              const policy = clientPolicy()
+              sendJson(response, 200, {
+                registry, hostVersion: dshHostInfo()?.version ?? null,
+                ...(Object.keys(policy).length > 0 ? { policy } : {}),
+                ...paging,
+              })
+            }
+            if (pageText === null && request.headers['x-dsh-catalog-paging'] !== '1') {
+              sendCatalog(discoveryCatalog(await loadRegistry()).response)
+              return
+            }
+            if (pageText !== null && !/^\d{1,6}$/.test(pageText)) {
+              sendJson(response, 400, { error: 'Invalid catalog page' })
+              return
+            }
+            const page = Number(pageText ?? 0)
+            const now = Date.now()
+            let snapshot = query.get('snapshot')
+            let registry: DiscoveryCatalog
+            if (page === 0 && snapshot === null) {
+              registry = discoveryCatalog(await loadRegistry()).response
+              snapshot = [...catalogSnapshots].find(([, saved]) => saved.registry === registry)?.[0] ?? randomUUID()
+            } else {
+              const saved = catalogSnapshots.get(snapshot ?? '')
+              if (snapshot === null || saved === undefined || saved.expiresAt <= now) {
+                sendJson(response, 409, { error: 'The catalog changed while loading. Please retry.' })
+                return
+              }
+              registry = saved.registry
+            }
+            const pages = Math.max(1, Math.ceil(registry.plugins.length / CATALOG_PAGE_SIZE))
+            if (page >= pages) {
+              sendJson(response, 400, { error: 'Invalid catalog page' })
+              return
+            }
+            if (pages > 1) {
+              // Keep two generations for overlapping opens; active reads renew their idle limit.
+              catalogSnapshots.delete(snapshot)
+              catalogSnapshots.set(snapshot, { registry, expiresAt: Date.now() + CATALOG_SNAPSHOT_TTL_MS })
+              if (catalogSnapshots.size > 2) catalogSnapshots.delete(catalogSnapshots.keys().next().value!)
+            }
+            const start = page * CATALOG_PAGE_SIZE
+            sendCatalog({ ...registry, plugins: registry.plugins.slice(start, start + CATALOG_PAGE_SIZE) }, { snapshot, page, pages })
           } catch (error) {
             // Say what went wrong. The market used to substitute a bundled
             // copy here, so an unreachable registry looked exactly like a
@@ -7350,6 +7401,40 @@ export function mountMarketRoutes(
               throw error
             }
             drainPhaseOf(request)?.('verifying')
+            if (result.selfSwapped === true) {
+              // The host swapped the running market for the new build while it
+              // ran this very request (see `updateInPlace`): this instance is
+              // disposed, and everything below asks it for services it no
+              // longer has — the loader inventory above all. The answer is
+              // already in the result, and the new instance is serving.
+              invalidateUpdates()
+              if (result.exitCode === 0) {
+                logEvent('info', 'update', `${name}: the host swapped in the new build while answering this request`)
+                sendJson(response, 200, {
+                  ok: true,
+                  name,
+                  selfSwapped: true,
+                  // The page is still the old one: say so, so the market's own
+                  // "apply now" prompt (which only reloads the page here) shows.
+                  activation: {
+                    [name]: {
+                      state: 'restart',
+                      bundle: true,
+                      hot: false,
+                      reasons: ['新版本已经换上，刷新页面就能用上。 / The new version is already running; reload the page to use it.'],
+                    },
+                  },
+                })
+              } else {
+                logEvent('error', 'update', `${name}: the host replaced the running market and the update did not hold — ${result.stderr.slice(0, 400)}`)
+                sendJson(response, 502, {
+                  ok: false,
+                  error: result.stderr,
+                  ...(result.refusalCode === undefined ? {} : { failureCode: result.refusalCode }),
+                })
+              }
+              return
+            }
             if (checkoutSource !== null && result.repairOnRestart === true) {
               // A direct add can time out without a remove/reinstall journal
               // (#928). Wait for the manager before reattaching a checkout
@@ -7789,11 +7874,17 @@ export function mountMarketRoutes(
               // Remembered, not just reported: the listing recomputes
               // activation on every page load and would otherwise call this
               // live again the moment the user refreshed.
-              if (wasLive) replacedWhileLive.add(name)
+              // A host that swaps the new build in itself (HMR: `applied`) left
+              // no old module running, so there is nothing stale to remember
+              // or to ask a restart for — and the remembered flag would keep
+              // saying "restart" on every later page load.
+              const staleModule = wasLive && result.liveSwap !== true
+              if (staleModule) replacedWhileLive.add(name)
+              else replacedWhileLive.delete(name)
               activation = {
                 [name]: activationAfterReplace(
                   verifyActivation(config.profile, name, liveNames(), activeProfileDir, disabled.has(name)),
-                  wasLive,
+                  staleModule,
                 ),
               }
               const after = assessProfile(config.profile, activeProfileDir)

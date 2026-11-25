@@ -763,7 +763,7 @@ const REGISTRY = {
     { name: 'theme-b', owner: 'o', url: 'https://github.com/o/theme-b', category: 'theme', npm: null, description: {}, install: '', added: '' },
     { name: 'skin-pack', owner: 'o', url: 'https://github.com/o/skin-pack', category: 'theme', npm: null, description: {}, install: '', added: '' },
     { name: 'dsh-excel-chat', owner: 'hccccc01333', url: 'https://github.com/hccccc01333/dsh-excel-chat', category: 'tool', npm: null, description: {}, install: '', added: '' },
-    { name: 'dsh-crate', owner: 'dsh-crate', url: 'https://github.com/dsh-crate/dsh-crate', category: 'tool', npm: 'dsh-crate', description: {}, install: '', added: '' },
+    { name: 'dsh-crate', owner: 'dsh-crate', url: 'https://github.com/dshcrate/dsh-crate', category: 'tool', npm: 'dsh-crate', description: {}, install: '', added: '' },
     // #27 shape: the same repo listed twice under different names.
     { name: 'dsh-share', owner: 'h', url: 'https://github.com/h/dsh-share', category: 'tool', npm: 'dsh-share', description: {}, install: '', added: '' },
     { name: '@dsh-external/dsh-share', owner: 'h', url: 'https://github.com/h/dsh-share', category: 'tool', npm: null, description: {}, install: '', added: '' },
@@ -7568,14 +7568,14 @@ describe('market self-update', () => {
       latest: '1.0.3',
       versions: { '1.0.3': { manifest: { dsh: {}, main: 'lib/index.js' }, artifacts: ['lib/index.js'] } },
     }
-    await bed.dispatch('POST', '/dsh-crate/install', { url: 'https://github.com/dsh-crate/dsh-crate' })
+    await bed.dispatch('POST', '/dsh-crate/install', { url: 'https://github.com/dshcrate/dsh-crate' })
     const manifestPath = join(fake.profileDir, 'package.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dependencies: Record<string, string> }
     manifest.dependencies['dsh-crate'] = 'file:/packages/dsh-crate-1.0.3.tgz'
     writeFileSync(manifestPath, JSON.stringify(manifest))
     const packagePath = join(fake.profileDir, 'node_modules', 'dsh-crate', 'package.json')
     const installedPackage = JSON.parse(readFileSync(packagePath, 'utf8')) as Record<string, unknown>
-    installedPackage.repository = { type: 'git', url: 'https://github.com/dsh-crate/dsh-crate.git' }
+    installedPackage.repository = { type: 'git', url: 'https://github.com/dshcrate/dsh-crate.git' }
     writeFileSync(packagePath, JSON.stringify(installedPackage))
     fake.npm['dsh-crate'].latest = '1.2.3'
     fake.npm['dsh-crate'].versions['1.2.3'] = {
@@ -7600,14 +7600,14 @@ describe('market self-update', () => {
       latest: '1.0.3',
       versions: { '1.0.3': { manifest: { dsh: {}, main: 'lib/index.js' }, artifacts: ['lib/index.js'] } },
     }
-    await bed.dispatch('POST', '/dsh-crate/install', { url: 'https://github.com/dsh-crate/dsh-crate' })
+    await bed.dispatch('POST', '/dsh-crate/install', { url: 'https://github.com/dshcrate/dsh-crate' })
     // The desktop host's layout: the package lives in a generation directory
     // beside the profile, and the profile links to it.
     const generation = join(fake.profileDir, '..', '.generations', 'live', 'dsh-crate+1.0.3+7aba605c3145', 'node_modules', 'dsh-crate')
     mkdirSync(generation, { recursive: true })
     const packagePath = join(fake.profileDir, 'node_modules', 'dsh-crate', 'package.json')
     const installedPackage = JSON.parse(readFileSync(packagePath, 'utf8')) as Record<string, unknown>
-    installedPackage.repository = { type: 'git', url: 'https://github.com/dsh-crate/dsh-crate.git' }
+    installedPackage.repository = { type: 'git', url: 'https://github.com/dshcrate/dsh-crate.git' }
     writeFileSync(packagePath, JSON.stringify(installedPackage))
     writeFileSync(join(generation, 'package.json'), JSON.stringify(installedPackage))
     const manifestPath = join(fake.profileDir, 'package.json')
@@ -7638,7 +7638,7 @@ describe('market self-update', () => {
     // has no fixture for. The channel's own behaviour is covered separately.
     await bed.dispatch('POST', '/dsh-crate/channel', { channel: 'stable' })
     fake.npm['dsh-crate'] = { latest: '1.0.3', versions: { '1.0.3': { manifest: { dsh: {}, main: 'lib/index.js' }, artifacts: ['lib/index.js'] } } }
-    await bed.dispatch('POST', '/dsh-crate/install', { url: 'https://github.com/dsh-crate/dsh-crate' })
+    await bed.dispatch('POST', '/dsh-crate/install', { url: 'https://github.com/dshcrate/dsh-crate' })
     fake.npm['dsh-crate'].latest = '1.2.3'
     fake.npm['dsh-crate'].versions['1.2.3'] = { manifest: { dsh: {}, main: 'lib/index.js' }, artifacts: ['lib/index.js'] }
     vi.stubGlobal('fetch', (url: string) => String(url).includes('registry.npmjs.org')
@@ -7776,8 +7776,9 @@ describe('the approve-and-retry banner is offered only for the failure it clears
     // And the real cause is what the row shows — now as the classifier's own
     // sentence, which names the package and says what such an entry usually
     // is (#848 took over this slot from the raw stderr tail, which happened to
-    // contain the 404 line among pnpm's progress chatter).
-    expect(String(failed.json.error)).toContain('registry 上不存在')
+    // contain the 404 line among pnpm's progress chatter). A 404 for a
+    // tarball reads as a download the route has not synced yet.
+    expect(String(failed.json.error)).toContain('还没同步')
     expect(String(failed.json.error)).toContain('@types/retry')
     expect(String(failed.json.stderr)).toContain('404')
   })
@@ -9495,6 +9496,58 @@ describe('generic enable/disable toggle (#60)', () => {
     const again = await bed.dispatch('POST', '/dsh-crate/toggle', { name: 'dsh-loop', enabled: true })
     expect(again.status).toBe(200)
     expect(readFileSync(patchPath, 'utf8')).not.toContain('loop-tui')
+  })
+
+  it('a group the bundle gates with an expression comes back after the market switched it off (#1305)', async () => {
+    // dsh-mnemon's shape: one `group: true` row whose `disabled` is an
+    // expression, with the components nested under it. Switching the package
+    // off wrote a literal `disabled: true` on that row; switching it on
+    // treated the row as "decided by its expression" and left the market's own
+    // literal in place, so the group stayed closed under every boot.
+    await installNpm('dsh-loop')
+    mkdirSync(join(fake.profileDir, 'node_modules', 'dsh-loop'), { recursive: true })
+    writeFileSync(join(fake.profileDir, 'node_modules', 'dsh-loop', 'cordis.patch.yml'), [
+      '- insert:',
+      '    - id: loop-bundle',
+      '      name: dsh-loop/bundle',
+      '      group: true',
+      '      disabled: !!js >-',
+      "        (() => false)()",
+      '      config:',
+      '        - id: loop',
+      '          name: dsh-loop',
+      '        - id: loop-source',
+      '          name: dsh-loop-source',
+      '',
+    ].join('\n'))
+    const patchPath = join(fake.profileDir, 'cordis.patch.yml')
+    writeFileSync(patchPath, '[]\n')
+
+    const off = await bed.dispatch('POST', '/dsh-crate/toggle', { name: 'dsh-loop', enabled: false })
+    expect(off.status).toBe(200)
+    const afterOff = readFileSync(patchPath, 'utf8')
+
+    const on = await bed.dispatch('POST', '/dsh-crate/toggle', { name: 'dsh-loop', enabled: true })
+    expect(on.status).toBe(200)
+    const afterOn = readFileSync(patchPath, 'utf8')
+    expect(afterOff).toContain('loop-bundle')
+    expect(afterOn).not.toMatch(/disabled: true/u)
+
+    // The same package switched off by an older market, which wrote plain rows
+    // without the package-switch marker (the reporter's file): switching it on
+    // has to clear the group row's literal as well as the components'.
+    writeFileSync(patchPath, [
+      '- id: loop-bundle',
+      '  disabled: true',
+      '- id: loop',
+      '  disabled: true',
+      '- id: loop-source',
+      '  disabled: true',
+      '',
+    ].join('\n'))
+    const again = await bed.dispatch('POST', '/dsh-crate/toggle', { name: 'dsh-loop', enabled: true })
+    expect(again.status).toBe(200)
+    expect(readFileSync(patchPath, 'utf8')).not.toContain('loop-bundle')
   })
 
   it('still switches a package off through its own rows, opt-in or not', async () => {

@@ -33,7 +33,7 @@ npm run typecheck
 npm run build:client
 ```
 
-`npm test` 会跑 `tests/brand-guard.spec.ts`，品牌、数据源、三语文案、视觉几何共 30 项断言，任何一项红都说明同步把本地定制覆盖了。
+`npm test` 会跑 `tests/brand-guard.spec.ts`，品牌、数据源、三语文案、视觉几何、赞助商开关共 31 项断言，任何一项红都说明同步把本地定制覆盖了。
 
 ## 分类与处理
 
@@ -67,7 +67,7 @@ npm run build:client
 
 ### 防护断言
 
-`tests/brand-guard.spec.ts` 共 30 项，随 `npm test` 运行：
+`tests/brand-guard.spec.ts` 共 31 项，随 `npm test` 运行：
 
 | 组 | 覆盖内容 | 数量 |
 |---|---|---|
@@ -77,8 +77,9 @@ npm run build:client
 | D | 视觉与几何 | 4 |
 | E | 设置页布局与滚动（吸顶与背景色、无内层滚动、吸顶变量） | 3 |
 | F | 导航图标（行选择器、尺寸与掩膜、标记与清除） | 3 |
+| G | 赞助商开关（`withSponsoredFirst` 必须随 `SHOW_SPONSORS` 关闭） | 1 |
 
-上游同步后若 E/F 变红，说明设置页吸顶、导航背景色或图标定制被覆盖，按清单恢复后再提交。
+上游同步后若 E/F/G 变红，说明设置页吸顶、导航背景色或图标定制、赞助商置顶开关被覆盖，按清单恢复后再提交。
 
 ## 已知坑
 
@@ -121,8 +122,16 @@ npm run build:client
 - [ ] `grep -rn "awesome-dsh-plugin" src tests --include='*.ts' --include='*.tsx'`：整文件取上游会把本地注释退回上游目录名；恢复 `dshcrate` 说明后重建 `client.js`，产物里不能再出现。
 - [ ] 新增文案/提示词逐个看品牌词：`Plugin market`、单独的 `market`、`插件市场` 要改成 `Plugin Crate`、`插件箱子`；brand-guard 18 只拦大写 `Plugin Market`/`插件市场`，拦不住小写和单个 `market`。
 - [ ] `src/client/sponsors.generated.ts` 头注不能照抄上游 `scripts/sponsors.mjs`（本仓没有该脚本）；写明从上游同步、手工维护、开关位置。
-- [ ] `src/client/market-install.ts` 的 `withSponsoredFirst` 必须包在 `SHOW_SPONSORS ? ... : recent` 里；只关 header logo 不等于关赞助商置顶。
-- [ ] 最后 `grep -c "dshmarket\|dsh-market\|Plugin Market\|插件市场\|awesome-dsh-plugin" client/client.js`，期望 0；外部赞助商 URL 只允许留在 `sponsors.json` / `sponsors.generated.ts` 的数据里，并已被 `SHOW_SPONSORS=false` 树摇掉。
+- [ ] `src/client/market-install.ts` 的 `withSponsoredFirst` 必须包在 `SHOW_SPONSORS ? ... : recent` 里；只关 header logo 不等于关赞助商置顶，`tests/brand-guard.spec.ts` 第 33 项会拦。
+- [ ] 批量回写品牌后，`dsh-crate` 作为对象键必须加引号（`'dsh-crate':`），属性访问必须用方括号（`obj['dsh-crate']`）；直接写 `dsh-crate:` / `.dsh-crate` 会让测试在 Vite 转换阶段直接 PARSE_ERROR。
+- [ ] `DSH_CRATE_POLICY`、`DSH_CRATE_INSTALL_TIMEOUT_MS` 等环境变量名要和 `src/policy.ts` / `src/dsh-cli.ts` 一致；上游的 `DSH_MARKET_*` 不能留，测试里的旧名也要一起改。
+- [ ] 最后 `grep -c "dshmarket\|dsh-market\|Plugin Market\|插件市场\|awesome-dsh-plugin" client/client.js`，期望 0；外部赞助商 URL（`dsh-market.hualong-ai.com`、`utm_source=dsh-market` 等）允许留在数据里，不计入代码品牌命中。
+
+## 同步后测试自检
+
+- [ ] `src/client/MarketLayout.tsx` 的 `Masonry` 在测量高度全为 0（jsdom、无布局引擎）时必须退回交替分列；否则 `market-section.client.spec.tsx` 的 masonry、Installed 排序、行菜单与冲突决策会连锁失败（2026-11-25 实际踩到 16 条）。
+- [ ] `tests/web/desktop-update.e2e.ts` 的官方桌面分支只在 dsh 0.2.1+ 运行；`updateBundle` 原地更新只在 0.2.2+ 断言。低于 0.2.1 的宿主必须在 `describe.skipIf` 跳过，否则 0.1.x / 0.2.0 的 e2e 会红。
+- [ ] `tests/client/market-section.client.spec.tsx` 里“市场自身不出现在 Installed”的断言用 `queryByTitle('dsh-crate')`，不能用 `queryByText`；头部仓库链接文字也是 `dsh-crate`，整屏文本查询会误命中。
 
 ## 同步记录
 
@@ -143,5 +152,6 @@ npm run build:client
 | 2026-11-23 | v1.78.0 → v1.80.0（`upstream/main` `8747e07`） | `c196186`（入口默认值、Plugins 页 logo 标题、Add plugin 菜单）、`36bf883`（自身更新后旧服务端提示）、`f105db3`（reload-self 热替换服务端）、`9673b89`（reload-self 返回 `{outcome,error}` 并保持版本真实）、`0f7bf14`（旧服务端横幅等待 /status、错误文案、Apply now）、`d610293`（e2e 公共构建 helper 与横幅截图） | 本次提交 | `db03a60`/`8747e07` 仅版本号；8 个保护文件三方合并，保留 `dsh-crate` 身份、设置页吸顶、顶部 logo 15px+右移 2px、投稿 `/submit`、`SHOW_SPONSORS=false`、giscus 配置；`tsdown` loader id 回写 `dsh-crate`，reload 路由 `/dsh-crate/reload-self`，包回退名 `dsh-crate`；`client.js` 与 `lib/` 本地重建；测试基线 4,386 通过 / 3 跳过 |
 | 2026-11-24 | v1.80.0 → v1.80.3（`upstream/main` `6ef6055`） | `ae3402a`（Windows 原生目录路径、e2e 可见入口）、`5dd2017`（self-reload e2e 不阻塞 fixture）、`8f00457`（恢复安装任务等待）、`1952232`（AI 结果保留精确来源）、`cac579b`（AI 用 DSH 模型默认值）、`fa51888`（`engines.dsh` 覆盖宿主 peer）、`f4b70a8`（Installed 行不再误报 on）、`b3689dd`（THEMING.md）、`29dc1ee` + `e576c13`（`connection.admit` 网关与登录注册表）、`48c3e6d`（monorepo 子包 commit）、`cab3bd8`（离线包新导入替换旧包）、`bbe4713`（jsdom localStorage 修复）、`62940e4`/`6ef6055`（ModelGo 与侧栏赞助位） | 本次提交 | 上游站点/`scripts/sponsors.mjs`/`ENTERPRISE*`（本仓无站点链路）；版本号取本地 `0.6.3`；保护文件逐块合并，保留 `dsh-crate` 身份、logo 15px+右移 2px、投稿 `/submit`、`SHOW_SPONSORS=false`、giscus、设置页吸顶；赞助商数据取上游但渲染开关保持关闭，`sponsor-sidebar.e2e.ts` 本地跳过；`client.js` 与 `lib/` 本地重建 |
 | 2026-11-24 | v1.80.3 → v1.81.1（`upstream/main` `ddf2424`） | `53b8d2a`（赞助商插件置顶、最近收录卡片变高）、`fdab350`（README 安装说明）、`ddf2424`（头部与 logo 对齐、AI 提示移到搜索框下、最近收录名称/描述打开详情弹窗、新版标签显示可更新时间） | 本次提交（0.6.4） | README/`scripts/sponsors.mjs` 跳过；保护文件逐块合并；`sponsored-plugins` 置顶按 `SHOW_SPONSORS` 关闭；`locales.ts` 新增两键并保留本地品牌；`client.js` 本地重建 |
+| 2026-11-25 | v1.81.1 → v1.84.1（`nightly1014` `b8147f2`） | `04a98ff`（官方桌面走宿主 `updateBundle`，市场自身也走宿主）、`7f370dd`（宿主原地替换后报告 live）、`7249559`/`7f370dd`（0.2.1 保留 remove+install）、`0bb6f28`（registry 无 bundle 回退、下载缺失提示）、`37fcc52`（赞助商行悬停大卡片）、`056229e`（按实测高度平衡瀑布流）、`8a68ceb`（Tasks 按钮显示 Uninstalling/Updating）、`188c1fc`（记住每页条数、表达式门控可重新开启）、`235f488`（目录分页下发）、`ac39cdb`（Installed 页显示被关闭但可更新的数量） | 本次提交（0.6.5） | README/站点/`scripts/sponsors.mjs`/版本号 `1.84.1` 跳过；保护文件三方合并，保留 `dsh-crate` 身份、logo 15px+右移 2px、投稿 `/submit`、`SHOW_SPONSORS=false`、giscus、设置页吸顶；`sponsored-plugins` 置顶继续按开关关闭；新增 `desktop-update.e2e.ts` 按宿主版本跳过 0.2.1 以下；`Masonry` 零高度时保持交替分列；`client.js` 与 `lib/` 本地重建；测试基线 4,465 通过 / 3 跳过 |
 
 新的同步完成后，在表里追加一行：上游版本范围、采纳的 commit、对应的本地 commit、跳过项及原因。

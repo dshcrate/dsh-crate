@@ -347,6 +347,8 @@ export declare function bundleOptOutRowIds(dir: string): string[];
  * Reads the same two patch sources as `bundleOptOutRowIds` above.
  */
 export declare function bundleExpressionRowIds(dir: string): string[];
+/** The `group: true` rows a package gates with an expression (#1305). */
+export declare function bundleGroupGateRowIds(dir: string): string[];
 /**
  * Row ids the installed copy of a package DECLARES it inserts (#1012).
  *
@@ -393,6 +395,7 @@ export declare function parsePatchRows(text: string): {
     insertedIds: string[];
     disabledIds: string[];
     expressionIds: string[];
+    groupGateIds: string[];
 };
 /**
  * Where a package's bundle patches live, according to the package itself.

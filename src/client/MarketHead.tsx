@@ -27,7 +27,7 @@ import {
   setUpdateNotificationsIntervalHours,
 } from './update-notifications.ts'
 import { MarketLogo } from './MarketLogo.tsx'
-import { marketWaitLabel, marketWaitTip, writeSidebarTipDismissed } from './market-helpers.ts'
+import { writeSidebarTipDismissed } from './market-helpers.ts'
 import { HOVER_TIP_DELAY_MS, SponsorMark } from './MarketCardParts.tsx'
 import { SHOW_SPONSORS } from './sponsors.generated.ts'
 import { activationMeta, HostDependencyDiagnostics } from './MarketStatusParts.tsx'
@@ -111,7 +111,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
   // host can swap it in place: offer that instead of a restart (or on a
   // Desktop that cannot restart, instead of nothing).
   const marketWaiting = [...restartNames, ...updatedNames, ...Object.keys(activations).filter(name => activations[name]?.state === 'restart')]
-    .some(name => name === 'dsh-crate' || name === 'dsh-crate')
+    .some(name => name === 'dsh-crate')
   const applyInPlace = hostCaps.selfReload && marketWaiting && !staleServer && reloadingSelf !== 'failed'
   // Four everyday tabs in the row; the rarely used ones (Hidden, Advanced)
   // and the rarely used actions sit behind ···.
@@ -145,10 +145,17 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
           {version !== null && (
             <span className={css.marketVersionGroup}>
               <span className={css.version} title={t('versionHint')}>v{version}</span>
-              {showMarketWait && (
-                <Tooltip label={() => marketWaitTip(heldMarketVersion!, eligibleMarketVersion, uiLocale, t)} side="bottom" delayMs={HOVER_TIP_DELAY_MS} portal maxWidth={320}>
-                  <span className={css.marketVersionWait} tabIndex={0}>{marketWaitLabel(heldMarketVersion!, eligibleMarketVersion, uiLocale, t)}</span>
-                </Tooltip>
+              {/* Only when there is something to do: a version that cannot be
+                  installed yet is not shown at all (nothing to act on). */}
+              {marketOffer !== null && (
+                <button
+                  type="button"
+                  className={css.marketVersionUpdate}
+                  disabled={updatingName !== null || busyUrl !== null}
+                  onClick={takeMarketOffer}
+                >{updatingName === marketOffer.name
+                  ? t('updating')
+                  : t('marketVersionUpdateNow').replace('{0}', marketOffer.version === null ? '' : ` v${marketOffer.version.replace(/^v/, '')}`)}</button>
               )}
             </span>
           )}

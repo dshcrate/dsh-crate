@@ -461,102 +461,74 @@ describe('the market names its own new version on Installed', () => {
   })
 })
 
-describe('Market self-update waiting hint (#1244)', () => {
+it('renders Discover cards while the full catalog is still downloading', async () => {
+  const baseFetch = stubFetch()
+  let release = () => {}
+  const remainder = new Promise<void>(resolve => { release = resolve })
+  vi.stubGlobal('fetch', vi.fn(async (input: unknown, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname !== '/dsh-crate/registry') return baseFetch(input, init)
+    const page = Number(url.searchParams.get('page') ?? 0)
+    if (page === 1) await remainder
+    return Response.json({
+      registry: { ...REGISTRY, plugins: page === 0 ? REGISTRY.plugins.slice(0, 1) : REGISTRY.plugins.slice(1) },
+      hostVersion: '0.1.2-alpha.2', snapshot: 'test-snapshot', page, pages: 2,
+      ...(page === 0 ? { policy: { comments: false } } : {}),
+    })
+  }))
+  render(<MarketSection {...props()} />)
+  try {
+    expect(await screen.findByText(en.catalogProgress)).toBeTruthy()
+    expect(screen.getByText('dsh-loop')).toBeTruthy()
+    expect(screen.queryByText('dsh-notify')).toBeNull()
+    expect(screen.queryByRole('button', { name: en.comments })).toBeNull()
+    fireEvent.click(screen.getByText('dsh-loop'))
+    expect(within(await screen.findByRole('dialog')).getByText('Tools')).toBeTruthy()
+  } finally { release() }
+  expect(await screen.findByText('dsh-notify')).toBeTruthy()
+  expect(screen.queryByText(en.catalogProgress)).toBeNull()
+  expect(screen.queryByRole('button', { name: en.comments })).toBeNull()
+})
+
+describe('the market\'s own new version beside its version number', () => {
   const current = '1.73.19'
   const until = new Date(2026, 10, 17, 4, 45).toISOString()
   const endpoints = {
     '/dsh-crate/status': { active: false, pnpm: true, boot: 'boot-1', version: current },
     '/dsh-crate/installed': { profile: 'desktop', installed: { 'dsh-crate': current }, live: ['dsh-crate'] },
   }
-  // The visible words now carry the version and time (a bare label left people asking how to get it).
-  const hint = /^\(New version/
+  const offer = /^New version/
 
   beforeEach(() => { vi.setSystemTime(new Date(2026, 10, 17, 0, 54)) })
   afterEach(() => { vi.useRealTimers() })
 
-  it('shows when the held version becomes available and then hands off to the existing action', async () => {
-    let updateAvailable = false
+  it('says nothing about a version that cannot be installed yet: there is nothing to do', async () => {
     stubFetch({
       ...endpoints,
-      '/dsh-crate/updates': () => ({ updates: { 'dsh-crate': {
-        kind: 'npm', current, latest: '1.73.20', updateAvailable,
-        ...(updateAvailable ? { eligibleVersion: '1.73.20' } : { heldUpdate: { latest: '1.73.20', until } }),
-      } } }),
+      '/dsh-crate/updates': { updates: { 'dsh-crate': {
+        kind: 'npm', current, latest: '1.73.20', updateAvailable: false, heldUpdate: { latest: '1.73.20', until },
+      } } },
     })
     render(<MarketSection {...props()} />)
-    const marker = await screen.findByText(hint)
-    expect(marker.tabIndex).toBe(0)
-    expect(screen.queryByRole('button', { name: en.marketUpdate })).toBeNull()
-    expect(screen.queryByRole('tooltip')).toBeNull()
-
-    fireEvent.mouseEnter(marker)
-    expect((await screen.findByRole('tooltip')).textContent).toBe('v1.73.20 available at 04:45')
-    fireEvent.mouseLeave(marker)
-    expect(screen.queryByRole('tooltip')).toBeNull()
-
-    updateAvailable = true
-    fireEvent.click(screen.getByRole('button', { name: re(en.tabInstalled) }))
-    expect(await screen.findByRole('button', { name: en.marketUpdate })).toBeTruthy()
-    expect(screen.queryByText(hint)).toBeNull()
+    await screen.findByText(`v${current}`)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(screen.queryByRole('button', { name: offer })).toBeNull()
   })
 
-  it('distinguishes the held release from the existing button’s install target', async () => {
+  it('offers the installable version as one click that starts the update on Installed', async () => {
     stubFetch({
       ...endpoints,
       '/dsh-crate/updates': { updates: { 'dsh-crate': {
         kind: 'npm', current, latest: '1.73.21', eligibleVersion: '1.73.20', updateAvailable: true,
         heldUpdate: { latest: '1.73.21', until },
       } } },
-      '/dsh-crate/update': { ok: true },
     })
     render(<MarketSection {...props()} />)
-    await openInstalled()
-    const button = await screen.findByRole('button', { name: en.marketUpdate })
-    const marker = screen.getByText(hint)
-    fireEvent.focus(marker)
-    const tooltip = screen.getByRole('tooltip')
-    expect(tooltip.textContent).toContain('v1.73.20 available now')
-    expect(tooltip.textContent).toContain('v1.73.21 available at 04:45')
-    fireEvent.blur(marker)
-    expect(screen.queryByRole('tooltip')).toBeNull()
-
+    const button = await screen.findByRole('button', { name: offer })
+    expect(button.textContent).toContain('v1.73.20')
+    expect(button.textContent).not.toContain('1.73.21')
     fireEvent.click(button)
-    await waitFor(() => expect(fetchCalls.filter(call => call.path === '/dsh-crate/update').map(call => call.body))
-      .toEqual([{ name: 'dsh-crate', eligibleVersion: '1.73.20' }]))
-  })
-
-  it('identifies a held release without promising an estimated availability time', async () => {
-    stubFetch({
-      ...endpoints,
-      '/dsh-crate/updates': { updates: { 'dsh-crate': {
-        kind: 'npm', current, latest: '1.73.20', updateAvailable: false,
-        heldUpdate: { latest: '1.73.20', until, estimated: true },
-      } } },
-    })
-    render(<MarketSection {...props()} />)
-    fireEvent.focus(await screen.findByText(hint))
-    expect(screen.getByRole('tooltip').textContent).toBe('v1.73.20')
-  })
-
-  it('formats a next-day waiting time in the UI language (#1254)', async () => {
-    const DateTimeFormat = Intl.DateTimeFormat
-    const formatter = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (locales, options) {
-      return new DateTimeFormat(locales ?? 'zh-CN', options)
-    })
-    try {
-      stubFetch({
-        ...endpoints,
-        '/dsh-crate/updates': { updates: { 'dsh-crate': {
-          kind: 'npm', current, latest: '1.73.20', updateAvailable: false,
-          heldUpdate: { latest: '1.73.20', until: new Date(2026, 10, 18, 4, 45).toISOString() },
-        } } },
-      })
-      render(<MarketSection {...props()} />)
-      fireEvent.focus(await screen.findByText(hint))
-      expect(screen.getByRole('tooltip').textContent).toBe('v1.73.20 available at Nov 18, 04:45')
-    } finally {
-      formatter.mockRestore()
-    }
+    await waitFor(() => expect(fetchCalls.some(call => call.path === '/dsh-crate/update')).toBe(true))
   })
 })
 
@@ -5323,7 +5295,7 @@ describe('lost update progress (config page reopened)', () => {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(re(en.tabInstalled)) }))
       // The restored marker re-renders the running row and its live progress.
       await vi.waitFor(() => { screen.getByRole('button', { name: en.updating }) })
-      fireEvent.click(screen.getByRole('button', { name: re(en.opInstalling) }))
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(`${re(en.opUpdating).source} \\d+/\\d+`) }))
       const panel = document.querySelector('[class*="opPanel"]')
       expect(panel, 'the Tasks panel did not open').toBeTruthy()
       expect(panel!.textContent).toContain('dsh-loop')
@@ -5681,7 +5653,7 @@ describe('#60 enable/disable switches in the Installed tab', () => {
     // A real plugin is installed alongside the market — its row shows,
     // proving the list isn't just empty, but the market's own row does not.
     await screen.findByText('dsh-loop')
-    expect(screen.queryByText('dsh-crate', { selector: '[class*="irowNameText"]' })).toBeNull()
+    expect(screen.queryByTitle('dsh-crate')).toBeNull()
     // The tab's own count badge counts the one real plugin, not the market too.
     expect(screen.getByRole('button', { name: /^Installed \(1\)/ })).toBeTruthy()
   })
@@ -5701,7 +5673,7 @@ describe('#60 enable/disable switches in the Installed tab', () => {
     render(<MarketSection {...props()} />)
     fireEvent.click(screen.getByRole('button', { name: /Installed/ }))
     expect(await screen.findByText(en.installedEmpty)).toBeTruthy()
-    expect(screen.queryByText('dsh-crate', { selector: '[class*="irowNameText"]' })).toBeNull()
+    expect(screen.queryByTitle('dsh-crate')).toBeNull()
     expect(screen.queryByRole('button', { name: /^Installed \(\d/ })).toBeNull()
   })
 
@@ -8496,6 +8468,29 @@ describe('local-dev restore', () => {
     })
     expect(fetchCalls.filter(call => call.path === '/dsh-crate/update').map(call => call.body?.name).sort())
       .toEqual(['dsh-loop', 'dsh-notify'])
+  })
+
+  it('says how many switched-off plugins have an update, since Update all leaves them out (#1257)', async () => {
+    stubFetch({
+      '/dsh-crate/installed': {
+        profile: 'web',
+        installed: { 'dsh-loop': '^1.0.0', 'dsh-third': '^1.0.0', 'dsh-fourth': '^1.0.0' },
+        live: [],
+        disabled: ['dsh-third', 'dsh-fourth'],
+      },
+      '/dsh-crate/updates': {
+        updates: {
+          'dsh-loop': { kind: 'npm', version: '1.0.0', latest: '1.1.0', updateAvailable: true },
+          'dsh-third': { kind: 'npm', version: '1.0.0', latest: '1.1.0', updateAvailable: true },
+          'dsh-fourth': { kind: 'npm', version: '1.0.0', latest: '1.0.0', updateAvailable: false },
+        },
+      },
+    })
+    render(<MarketSection {...props()} />)
+    await openInstalled()
+    expect(await screen.findByText(en.disabledUpdates.replace('{0}', '1'))).toBeTruthy()
+    // Update all itself still counts only the plugin that is switched on.
+    expect(screen.getByRole('button', { name: /Update all \(1\)/ })).toBeTruthy()
   })
 
   it('says a name-only catalog match is unverified, and names whose plugin it is (#485)', async () => {
@@ -13200,6 +13195,56 @@ describe('interrupted updates at startup (#1167)', () => {
     expect(screen.getByText('lost-update')).toBeTruthy()
   })
 
+  it.each([
+    ['uninstall', /^Uninstalling /u],
+    ['update', /^Updating /u],
+    ['install', /^Installing /u],
+  ] as const)('names what is running on the Tasks button: %s', (kind, label) => {
+    const noop = () => {}
+    render(<OperationsPanel
+      t={props().t}
+      lang="en"
+      describe={name => ({ title: name })}
+      records={[
+        { id: 'earlier', name: 'earlier-plugin', kind: 'install', state: 'done' },
+        { id: 'working', name: 'working-plugin', kind, state: 'running' },
+      ]}
+      open={false}
+      onOpenChange={noop}
+      replacing={false}
+      envReady
+      onClearSettled={noop}
+      onCancel={noop}
+      onDismiss={noop}
+      onRefresh={noop}
+      onResolveConflict={noop}
+    />)
+    expect(screen.getByRole('button', { name: label })).toBeTruthy()
+  })
+
+  it('says "Working on" when different kinds of task are in flight together', () => {
+    const noop = () => {}
+    render(<OperationsPanel
+      t={props().t}
+      lang="en"
+      describe={name => ({ title: name })}
+      records={[
+        { id: 'a', name: 'a-plugin', kind: 'uninstall', state: 'running' },
+        { id: 'b', name: 'b-plugin', kind: 'install', state: 'queued' },
+      ]}
+      open={false}
+      onOpenChange={noop}
+      replacing={false}
+      envReady
+      onClearSettled={noop}
+      onCancel={noop}
+      onDismiss={noop}
+      onRefresh={noop}
+      onResolveConflict={noop}
+    />)
+    expect(screen.getByRole('button', { name: /^Working on /u })).toBeTruthy()
+  })
+
   it('reads the completed startup report while the task list is otherwise idle', async () => {
     vi.useFakeTimers()
     try {
@@ -14181,22 +14226,5 @@ describe('what an organization turned off or fixed', () => {
     expect(screen.getByText(en.pinnedByOrg.replace('{0}', '1.21.6'))).toBeTruthy()
     // and says nothing of the kind about the rest
     expect(screen.getAllByText(/Version set by your organization/)).toHaveLength(1)
-  })
-})
-
-describe('the new-version words beside the market version say what they mean', () => {
-  const t = (key: string): string => ({
-    marketVersionWaitingText: '(New version: {0})',
-    marketVersionWaitingUnknown: '(New version {0}, not available to update yet. Check back in a few days)',
-    marketVersionAvailableAt: '{0} available at {1}',
-    marketVersionAvailableNow: '{0} available now',
-  } as Record<string, string>)[key] ?? key
-
-  it('names the time when it is known, and says it cannot be updated yet when it is not', async () => {
-    const { marketWaitLabel } = await import('../../src/client/market-helpers.ts')
-    const later = new Date(Date.now() + 3 * 3_600_000).toISOString()
-    expect(marketWaitLabel({ latest: '1.2.0', until: later }, null, 'en', t as never)).toMatch(/^\(New version: v?1\.2\.0 available at /)
-    expect(marketWaitLabel({ latest: '1.2.0', until: later, estimated: true }, null, 'en', t as never)).toContain('not available to update yet')
-    expect(marketWaitLabel({ latest: '1.2.0', until: '2000-01-01T00:00:00Z' }, null, 'en', t as never)).toContain('not available to update yet')
   })
 })
