@@ -54,6 +54,26 @@ npm run build:client
 | `client/client.js` | 构建产物，搬完源码后跑 `npm run build:client` 重建 |
 | `locale/*.json` | 插件元信息，保留本地描述 |
 | `package.json` | 保留 `name: dsh-crate`、`version: 0.5.x`、`icon`、`repository`、`files` |
+| `src/crate-catalog.ts` | 本仓专属目录适配层，上游没有；禁止删除或替换 |
+| `tests/crate-catalog.spec.ts` | 本仓专属适配层测试，上游没有；禁止删除或替换 |
+
+## 本仓专属文件与目录契约
+
+上游没有下面这些文件，同步时不得删除或替换：
+
+| 路径 | 作用 |
+|---|---|
+| `src/crate-catalog.ts` | crate 紧凑目录（`entries` + `i/n/d/s/...`）→ 内部 `Registry` 的唯一桥接层 |
+| `tests/crate-catalog.spec.ts` | 桥接层测试，覆盖字段映射与脏输入回退 |
+
+目录条目契约：`dsh-crate.json` 每条带 `a`（我方首次收录时间，ISO），由网页端 `dshcrate-web` 的 `MarketEntry.a` 生成；`asCratePlugin` 必须把 `row.a` 映射到 `added`，缺失、空串、非法日期或非字符串一律退回 `''`。
+
+客户端依赖这个字段：
+
+- 「最近收录」按 `added` 最近 7 天过滤，空值会被跳过
+- 「收录时间」排序用 `added-desc` / `added-asc`，空值排在后面
+
+同步后若这两处同时失效，先查 `a → added` 映射，不要先怀疑客户端。网页端改了字段名，插件端必须同步跟进。
 
 ## 保护机制
 
@@ -63,7 +83,7 @@ npm run build:client
 
 列出禁止整文件覆盖的路径，字段为 `path` / `why` / `merge`。同步脚本读取该文件；命中的文件只输出 diff，不写盘，由人工逐块合并。
 
-覆盖范围：数据源地址、插件身份与自识别集合、三语文案、插件端界面、滚动与吸顶样式、导航图标、构建产物、插件元信息、包身份、logo。
+覆盖范围：数据源地址、插件身份与自识别集合、三语文案、插件端界面、滚动与吸顶样式、导航图标、构建产物、插件元信息、包身份、logo、目录适配层与最近收录契约。
 
 ### 防护断言
 
@@ -111,6 +131,7 @@ npm run build:client
 - v1.80.3 新增 `tests/setup/jsdom-storage.ts`（Node 26 `localStorage` 遮蔽修复）；本仓原有的 `tests/setup/storage-globals.ts` 仍保留，`vitest.config.ts` 两者都挂，`jsdom-storage` 在前
 - v1.80.2/3 的赞助商数据取上游 `sponsors.json` 与 `assets/partners/modelgo-*.svg`，但 `src/client/sponsors.generated.ts` 必须保留 `SHOW_SPONSORS = false`；`tests/web/sponsor-sidebar.e2e.ts` 在本地按 `SHOW_SPONSORS` 跳过，否则必红
 - 外部赞助商 URL（如 `https://dsh-market.hualong-ai.com/`、`utm_source=dsh-market`）不做品牌回写；只回写代码标识、路由与产品名
+- `src/crate-catalog.ts` 的 `a → added` 映射是「最近收录」和「收录时间」排序的唯一数据来源；上游没有这个文件，`a` 字段由网页端 `MarketEntry.a` 生成。同步时不要删除本仓专属文件，也不要把 `added` 改回空串（2026-11-25 加）
 - v1.81.0/1 的 `sponsored-plugins` 置顶必须在 `market-install.ts` 调用处按 `SHOW_SPONSORS` 关闭；只关 logo 会继续把赞助商插件放到「最近收录」最前面
 
 ## 同步后品牌自检（每次必跑）
@@ -132,6 +153,7 @@ npm run build:client
 - [ ] `src/client/MarketLayout.tsx` 的 `Masonry` 在测量高度全为 0（jsdom、无布局引擎）时必须退回交替分列；否则 `market-section.client.spec.tsx` 的 masonry、Installed 排序、行菜单与冲突决策会连锁失败（2026-11-25 实际踩到 16 条）。
 - [ ] `tests/web/desktop-update.e2e.ts` 的官方桌面分支只在 dsh 0.2.1+ 运行；`updateBundle` 原地更新只在 0.2.2+ 断言。低于 0.2.1 的宿主必须在 `describe.skipIf` 跳过，否则 0.1.x / 0.2.0 的 e2e 会红。
 - [ ] `tests/client/market-section.client.spec.tsx` 里“市场自身不出现在 Installed”的断言用 `queryByTitle('dsh-crate')`，不能用 `queryByText`；头部仓库链接文字也是 `dsh-crate`，整屏文本查询会误命中。
+- [ ] `npx vitest run tests/crate-catalog.spec.ts`：目录条目的 `a` 必须映射到 `added`，缺失/非法日期退回空串。这两处失效时「最近收录」会整块消失、「收录时间」排序变成无效排序，而且不会报错。
 
 ## 同步记录
 

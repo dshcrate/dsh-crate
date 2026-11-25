@@ -108,8 +108,23 @@ export function asCratePlugin(entry: unknown): RegistryPlugin | null {
     version: typeof row.vr === 'string' && row.vr.trim() !== '' ? row.vr.trim() : null,
     icon: null,
     install: installCommandOf(row.cmd, npm, repo),
-    added: '',
+    added: addedOf(row.a),
   }
+}
+
+/**
+ * 首次收录时间。
+ *
+ * 只接受能解析的日期字符串；缺失、空串、非法日期或非字符串都退回空串，
+ * 让客户端的「最近收录」与收录时间排序忽略这一条，而不是显示一个假日期。
+ *
+ * @param value - crate 条目的 `a` 字段，来源不可信。
+ * @returns 原样的日期字符串，或空串。
+ */
+function addedOf(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const text = value.trim()
+  return text !== '' && !Number.isNaN(Date.parse(text)) ? text : ''
 }
 
 /**

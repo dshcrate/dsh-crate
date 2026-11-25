@@ -26,6 +26,7 @@ const FULL_ENTRY = {
   vr: '0.1.0',
   g: null,
   cmd: 'dsh plugin --profile web add @ethanyoq/dsh-ai-novel-writer',
+  a: '2026-10-20T00:00:00.000Z',
 }
 
 /** 一份最小的 crate 载荷。 */
@@ -72,6 +73,7 @@ describe('asCrateRegistry', () => {
       stars: 1856,
       version: '0.1.0',
       install: 'dsh plugin --profile web add @ethanyoq/dsh-ai-novel-writer',
+      added: '2026-10-20T00:00:00.000Z',
     })
     // crate 只提供一份描述，中英两栏共用同一段文本。
     expect(registry.plugins[0]?.description).toEqual({
@@ -144,6 +146,19 @@ describe('asCratePlugin', () => {
     expect(withNpm?.install).toBe('dsh plugin --profile web add a')
     const withoutNpm = asCratePlugin({ i: 'o/a', n: 'a' })
     expect(withoutNpm?.install).toBe('dsh plugin --profile web add github:o/a')
+  })
+
+  it('读取首次收录时间', () => {
+    const plugin = asCratePlugin({ ...FULL_ENTRY, a: '2026-11-20T08:00:00.000Z' })
+    expect(plugin?.added).toBe('2026-11-20T08:00:00.000Z')
+  })
+
+  it('首次收录时间缺失或非法时留空，不编造日期', () => {
+    const { a: _declared, ...withoutAdded } = FULL_ENTRY
+    expect(asCratePlugin(withoutAdded)?.added).toBe('')
+    for (const value of ['', '   ', 'not-a-date', 42, null, undefined]) {
+      expect(asCratePlugin({ ...FULL_ENTRY, a: value })?.added).toBe('')
+    }
   })
 })
 
