@@ -18641,7 +18641,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 		}
 		//#endregion
 		//#region src/client/client-version.ts
-		const CLIENT_VERSION = "0.6.5";
+		const CLIENT_VERSION = "0.6.6";
 		/** Numeric x.y.z comparison; prerelease tags are ignored. null if either is not a version. */
 		function compareMarketVersions(a, b) {
 			const parse = (v) => {
@@ -19418,7 +19418,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 									className: Market_module_css_default.grow,
 									children: [
-										t("staleBanner").replace("{0}", "0.6.5").replace("{1}", version ?? ""),
+										t("staleBanner").replace("{0}", "0.6.6").replace("{1}", version ?? ""),
 										" ",
 										hostCaps.selfReload || restartEnabled && restartReachable && debuggerLatch === null ? null : t(hostCaps.desktop ? "staleDesktopHint" : "staleManualHint"),
 										reloadingSelf === "failed" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [" ", reloadError !== "" ? reloadError : t(hostCaps.desktop ? "staleDesktopHint" : "staleManualHint")] })
