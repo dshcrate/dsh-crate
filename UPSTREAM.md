@@ -132,6 +132,7 @@ npm run build:client
 - v1.80.2/3 的赞助商数据取上游 `sponsors.json` 与 `assets/partners/modelgo-*.svg`，但 `src/client/sponsors.generated.ts` 必须保留 `SHOW_SPONSORS = false`；`tests/web/sponsor-sidebar.e2e.ts` 在本地按 `SHOW_SPONSORS` 跳过，否则必红
 - 外部赞助商 URL（如 `https://dsh-market.hualong-ai.com/`、`utm_source=dsh-market`）不做品牌回写；只回写代码标识、路由与产品名
 - `src/crate-catalog.ts` 的 `a → added` 映射是「最近收录」和「收录时间」排序的唯一数据来源；上游没有这个文件，`a` 字段由网页端 `MarketEntry.a` 生成。同步时不要删除本仓专属文件，也不要把 `added` 改回空串（2026-11-25 加）
+- v1.84.2 起 `MarketTabs.tsx` 的最近收录会自动翻页；该文件还有两处本地路由定制（`/dsh-crate/backup`、`/dsh-crate/webdav`），整文件取上游后必须回贴，否则备份与 WebDAV 会打到不存在的 `/dsh-market/*`
 - v1.81.0/1 的 `sponsored-plugins` 置顶必须在 `market-install.ts` 调用处按 `SHOW_SPONSORS` 关闭；只关 logo 会继续把赞助商插件放到「最近收录」最前面
 
 ## 同步后品牌自检（每次必跑）
@@ -175,5 +176,6 @@ npm run build:client
 | 2026-11-24 | v1.80.0 → v1.80.3（`upstream/main` `6ef6055`） | `ae3402a`（Windows 原生目录路径、e2e 可见入口）、`5dd2017`（self-reload e2e 不阻塞 fixture）、`8f00457`（恢复安装任务等待）、`1952232`（AI 结果保留精确来源）、`cac579b`（AI 用 DSH 模型默认值）、`fa51888`（`engines.dsh` 覆盖宿主 peer）、`f4b70a8`（Installed 行不再误报 on）、`b3689dd`（THEMING.md）、`29dc1ee` + `e576c13`（`connection.admit` 网关与登录注册表）、`48c3e6d`（monorepo 子包 commit）、`cab3bd8`（离线包新导入替换旧包）、`bbe4713`（jsdom localStorage 修复）、`62940e4`/`6ef6055`（ModelGo 与侧栏赞助位） | 本次提交 | 上游站点/`scripts/sponsors.mjs`/`ENTERPRISE*`（本仓无站点链路）；版本号取本地 `0.6.3`；保护文件逐块合并，保留 `dsh-crate` 身份、logo 15px+右移 2px、投稿 `/submit`、`SHOW_SPONSORS=false`、giscus、设置页吸顶；赞助商数据取上游但渲染开关保持关闭，`sponsor-sidebar.e2e.ts` 本地跳过；`client.js` 与 `lib/` 本地重建 |
 | 2026-11-24 | v1.80.3 → v1.81.1（`upstream/main` `ddf2424`） | `53b8d2a`（赞助商插件置顶、最近收录卡片变高）、`fdab350`（README 安装说明）、`ddf2424`（头部与 logo 对齐、AI 提示移到搜索框下、最近收录名称/描述打开详情弹窗、新版标签显示可更新时间） | 本次提交（0.6.4） | README/`scripts/sponsors.mjs` 跳过；保护文件逐块合并；`sponsored-plugins` 置顶按 `SHOW_SPONSORS` 关闭；`locales.ts` 新增两键并保留本地品牌；`client.js` 本地重建 |
 | 2026-11-25 | v1.81.1 → v1.84.1（`nightly1014` `b8147f2`） | `04a98ff`（官方桌面走宿主 `updateBundle`，市场自身也走宿主）、`7f370dd`（宿主原地替换后报告 live）、`7249559`/`7f370dd`（0.2.1 保留 remove+install）、`0bb6f28`（registry 无 bundle 回退、下载缺失提示）、`37fcc52`（赞助商行悬停大卡片）、`056229e`（按实测高度平衡瀑布流）、`8a68ceb`（Tasks 按钮显示 Uninstalling/Updating）、`188c1fc`（记住每页条数、表达式门控可重新开启）、`235f488`（目录分页下发）、`ac39cdb`（Installed 页显示被关闭但可更新的数量） | 本次提交（0.6.5） | README/站点/`scripts/sponsors.mjs`/版本号 `1.84.1` 跳过；保护文件三方合并，保留 `dsh-crate` 身份、logo 15px+右移 2px、投稿 `/submit`、`SHOW_SPONSORS=false`、giscus、设置页吸顶；`sponsored-plugins` 置顶继续按开关关闭；新增 `desktop-update.e2e.ts` 按宿主版本跳过 0.2.1 以下；`Masonry` 零高度时保持交替分列；`client.js` 与 `lib/` 本地重建；测试基线 4,465 通过 / 3 跳过 |
+| 2026-11-27 | v1.84.1 → v1.84.2（`nightly1014` `325c5bc`） | `06a0588`/`ab74033`/`739750e`（最近收录每 10 秒自动翻页，悬停/聚焦/隐藏标签页暂停，减少动态效果直接跳转）、`86d1026`（#1306 registry latest 读不到时记 warn） | 本次提交（0.6.7） | `telemetry/schema.sql`（本仓无该文件）、版本号 `1.84.2` 跳过；`MarketTabs.tsx` 保留 `/dsh-crate/backup`、`/dsh-crate/webdav` 两处本地路由；`routes.ts` 逐块合并；新增测试品牌回写为 `dsh-crate`；`client.js` 与 `lib/` 本地重建；测试基线 4,469 通过 / 3 跳过 |
 
 新的同步完成后，在表里追加一行：上游版本范围、采纳的 commit、对应的本地 commit、跳过项及原因。

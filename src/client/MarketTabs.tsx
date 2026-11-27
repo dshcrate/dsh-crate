@@ -41,6 +41,8 @@ type MarketGoneNoticeCtx = { props: MarketSectionProps }
  * hover (or never, on macOS) does not say so. Two arrows in the section head
  * do: each one is there only while there is more to see in its direction.
  */
+const RECENT_AUTOPLAY_MS = 10_000
+
 function RecentArrows({ rowRef, t }: { rowRef: RefObject<HTMLDivElement | null>; t: (key: 'recentPrev' | 'recentNext') => string }) {
   const [edges, setEdges] = useState({ left: false, right: false })
   useEffect(() => {
@@ -56,10 +58,50 @@ function RecentArrows({ rowRef, t }: { rowRef: RefObject<HTMLDivElement | null>;
     observer?.observe(row)
     return () => { row.removeEventListener('scroll', measure); observer?.disconnect() }
   }, [rowRef])
+  // Turns the page by itself every RECENT_AUTOPLAY_MS so every new plugin (and
+  // the sponsored one up front) gets seen; at the end it goes back to the
+  // start. Stops while the pointer or focus is in the strip and while the tab is
+  // hidden. Using the arrows
+  // restarts the wait, so a click is never followed by an instant second turn.
+  const [round, setRound] = useState(0)
+  useEffect(() => {
+    const row = rowRef.current
+    if (row === null) return
+    // Reduced motion keeps the paging (it is content, not decoration) but
+    // jumps instead of gliding.
+    const behavior: ScrollBehavior = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+    let held = false
+    let pointer = false
+    let focus = false
+    const sync = () => { held = pointer || focus }
+    const onEnter = () => { pointer = true; sync() }
+    const onLeave = () => { pointer = false; sync() }
+    const onFocusIn = () => { focus = true; sync() }
+    const onFocusOut = () => { focus = false; sync() }
+    row.addEventListener('mouseenter', onEnter)
+    row.addEventListener('mouseleave', onLeave)
+    row.addEventListener('focusin', onFocusIn)
+    row.addEventListener('focusout', onFocusOut)
+    const timer = setInterval(() => {
+      if (held || document.hidden) return
+      const max = row.scrollWidth - row.clientWidth
+      if (max <= 2) return
+      if (row.scrollLeft >= max - 2) row.scrollTo({ left: 0, behavior })
+      else row.scrollBy({ left: row.clientWidth * 0.85, behavior })
+    }, RECENT_AUTOPLAY_MS)
+    return () => {
+      clearInterval(timer)
+      row.removeEventListener('mouseenter', onEnter)
+      row.removeEventListener('mouseleave', onLeave)
+      row.removeEventListener('focusin', onFocusIn)
+      row.removeEventListener('focusout', onFocusOut)
+    }
+  }, [rowRef, round])
   if (!edges.left && !edges.right) return null
   const page = (direction: 1 | -1) => {
     const row = rowRef.current
     if (row === null) return
+    setRound(value => value + 1)
     row.scrollBy({ left: direction * row.clientWidth * 0.85, behavior: 'smooth' })
   }
   return (

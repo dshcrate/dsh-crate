@@ -18641,7 +18641,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 		}
 		//#endregion
 		//#region src/client/client-version.ts
-		const CLIENT_VERSION = "0.6.6";
+		const CLIENT_VERSION = "0.6.7";
 		/** Numeric x.y.z comparison; prerelease tags are ignored. null if either is not a version. */
 		function compareMarketVersions(a, b) {
 			const parse = (v) => {
@@ -19418,7 +19418,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 									className: Market_module_css_default.grow,
 									children: [
-										t("staleBanner").replace("{0}", "0.6.6").replace("{1}", version ?? ""),
+										t("staleBanner").replace("{0}", "0.6.7").replace("{1}", version ?? ""),
 										" ",
 										hostCaps.selfReload || restartEnabled && restartReachable && debuggerLatch === null ? null : t(hostCaps.desktop ? "staleDesktopHint" : "staleManualHint"),
 										reloadingSelf === "failed" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [" ", reloadError !== "" ? reloadError : t(hostCaps.desktop ? "staleDesktopHint" : "staleManualHint")] })
@@ -20702,6 +20702,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 		* hover (or never, on macOS) does not say so. Two arrows in the section head
 		* do: each one is there only while there is more to see in its direction.
 		*/
+		const RECENT_AUTOPLAY_MS = 1e4;
 		function RecentArrows({ rowRef, t }) {
 			const [edges, setEdges] = (0, react.useState)({
 				left: false,
@@ -20726,10 +20727,63 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 					observer?.disconnect();
 				};
 			}, [rowRef]);
+			const [round, setRound] = (0, react.useState)(0);
+			(0, react.useEffect)(() => {
+				const row = rowRef.current;
+				if (row === null) return;
+				const behavior = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+				let held = false;
+				let pointer = false;
+				let focus = false;
+				const sync = () => {
+					held = pointer || focus;
+				};
+				const onEnter = () => {
+					pointer = true;
+					sync();
+				};
+				const onLeave = () => {
+					pointer = false;
+					sync();
+				};
+				const onFocusIn = () => {
+					focus = true;
+					sync();
+				};
+				const onFocusOut = () => {
+					focus = false;
+					sync();
+				};
+				row.addEventListener("mouseenter", onEnter);
+				row.addEventListener("mouseleave", onLeave);
+				row.addEventListener("focusin", onFocusIn);
+				row.addEventListener("focusout", onFocusOut);
+				const timer = setInterval(() => {
+					if (held || document.hidden) return;
+					const max = row.scrollWidth - row.clientWidth;
+					if (max <= 2) return;
+					if (row.scrollLeft >= max - 2) row.scrollTo({
+						left: 0,
+						behavior
+					});
+					else row.scrollBy({
+						left: row.clientWidth * .85,
+						behavior
+					});
+				}, RECENT_AUTOPLAY_MS);
+				return () => {
+					clearInterval(timer);
+					row.removeEventListener("mouseenter", onEnter);
+					row.removeEventListener("mouseleave", onLeave);
+					row.removeEventListener("focusin", onFocusIn);
+					row.removeEventListener("focusout", onFocusOut);
+				};
+			}, [rowRef, round]);
 			if (!edges.left && !edges.right) return null;
 			const page = (direction) => {
 				const row = rowRef.current;
 				if (row === null) return;
+				setRound((value) => value + 1);
 				row.scrollBy({
 					left: direction * row.clientWidth * .85,
 					behavior: "smooth"
