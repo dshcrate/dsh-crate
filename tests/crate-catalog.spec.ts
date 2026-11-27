@@ -27,6 +27,8 @@ const FULL_ENTRY = {
   g: null,
   cmd: 'dsh plugin --profile web add @ethanyoq/dsh-ai-novel-writer',
   a: '2026-10-20T00:00:00.000Z',
+  ic: 'https://raw.githubusercontent.com/EthanYoQ/AI-Novel-Writer/main/icon.png',
+  sh: ['https://raw.githubusercontent.com/EthanYoQ/AI-Novel-Writer/main/a.png'],
 }
 
 /** 一份最小的 crate 载荷。 */
@@ -74,6 +76,8 @@ describe('asCrateRegistry', () => {
       version: '0.1.0',
       install: 'dsh plugin --profile web add @ethanyoq/dsh-ai-novel-writer',
       added: '2026-10-20T00:00:00.000Z',
+      icon: 'https://raw.githubusercontent.com/EthanYoQ/AI-Novel-Writer/main/icon.png',
+      screenshots: ['https://raw.githubusercontent.com/EthanYoQ/AI-Novel-Writer/main/a.png'],
     })
     // crate 只提供一份描述，中英两栏共用同一段文本。
     expect(registry.plugins[0]?.description).toEqual({
@@ -159,6 +163,32 @@ describe('asCratePlugin', () => {
     for (const value of ['', '   ', 'not-a-date', 42, null, undefined]) {
       expect(asCratePlugin({ ...FULL_ENTRY, a: value })?.added).toBe('')
     }
+  })
+
+  it('读取精选图标与截图', () => {
+    const plugin = asCratePlugin(FULL_ENTRY)
+    expect(plugin?.icon).toBe(FULL_ENTRY.ic)
+    expect(plugin?.screenshots).toEqual(FULL_ENTRY.sh)
+  })
+
+  it('精选图片只收 https，截图去重且最多 3 张', () => {
+    const a = 'https://raw.githubusercontent.com/o/a/main/a.png'
+    const c = 'https://raw.githubusercontent.com/o/a/main/c.png'
+    const d = 'https://raw.githubusercontent.com/o/a/main/d.png'
+    const plugin = asCratePlugin({
+      ...FULL_ENTRY,
+      ic: 'http://insecure.example/icon.png',
+      sh: [a, 'http://insecure.example/b.png', a, c, d, 'https://raw.githubusercontent.com/o/a/main/e.png'],
+    })
+    expect(plugin?.icon).toBeNull()
+    expect(plugin?.screenshots).toEqual([a, c, d])
+  })
+
+  it('没有精选图片时不设置截图字段，卡片保持纯文字', () => {
+    const { ic: _ic, sh: _sh, ...bare } = FULL_ENTRY
+    const plugin = asCratePlugin(bare)
+    expect(plugin?.icon).toBeNull()
+    expect(plugin?.screenshots).toBeUndefined()
   })
 })
 
