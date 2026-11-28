@@ -141,6 +141,7 @@ npm run build:client
 - v1.85.0 品牌回写还要覆盖大写环境变量 `DSH_MARKET_*`、行首对象键 `dsh-crate:`、属性访问 `.dsh-crate`；`tests/brand-guard.spec.ts` 与 `tests/web/desktop-settings.e2e.ts` 的禁用词和历史正则不能参与批量回写，否则防护会自伤
 - `routes.ts` 的 `settledRoutes` + `buildRouteTable()` + try/catch 是 #1309 的注册失败清理逻辑，必须保留；路由路径继续用 `/dsh-crate/*`
 - v1.85.0 新增 `findPluginCommand` 配置（`src/index.ts` 的 type、zod 与提前 return）和 `official-desktop.ts` 的 `updatable` 兼容行，逐块合并，不要整文件覆盖
+- v1.85.0 的 `self-reload-banner.e2e.ts` 会断言确认对话框按钮；本仓文案是「Reload Plugin Crate now」，测试里的上游 `Reload market now` 要同步改，否则 0.2.x 的 web-e2e 会超时
 
 ## 同步后品牌自检（每次必跑）
 

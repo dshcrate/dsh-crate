@@ -120,7 +120,7 @@ describe.skipIf(!dshAvailable() || !hostCanSwap()).sequential('web e2e: activati
       await banner.waitFor({ timeout: 30_000 })
       const activity = watchActivation(page)
       await banner.getByRole('button', { name: 'Apply now' }).click()
-      const confirm = page.getByRole('dialog').getByRole('button', { name: 'Reload market now' })
+      const confirm = page.getByRole('dialog').getByRole('button', { name: 'Reload Plugin Crate now' })
       await confirm.waitFor()
       expect((await status()).version).toBe(running)
       expect(activity).toEqual({ posts: [], navigations: 0 })
