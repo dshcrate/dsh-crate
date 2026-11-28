@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { checkUpdates, compareVersions, fetchNpmLatest, invalidateUpdates, isUpgrade, readVersionMaturity, resolveDesktopMatureUpdate } from '../src/updates.ts'
+import { checkUpdates, compatibleUpdateInHistory, compareVersions, fetchNpmLatest, invalidateUpdates, isUpgrade, readVersionMaturity, resolveDesktopMatureUpdate } from '../src/updates.ts'
 
 describe('compareVersions', () => {
   it('orders by major, minor, then patch', () => {
@@ -573,6 +573,45 @@ describe('checkUpdates — github pins', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sha: 12345 }) })))
     expect(await checkUpdates('web', true, profileWith('github:owner/themer', OLD)))
       .toMatchObject({ themer: { latest: null, updateAvailable: false } })
+  })
+
+  it("reads a monorepo subpackage's own commit, not the sibling pnpm lists last (#1296)", async () => {
+    // Two `#path:` subpackages of one repository: plug-a already updated to
+    // HEAD, plug-b still on the older commit. pnpm writes each as the host's
+    // archive, and the repository-level map keeps one slot per repository —
+    // plug-b's, the entry listed last.
+    const dir = join(mkdtempSync(join(tmpdir(), 'dshm-upd-')), 'profiles', 'web')
+    const deps = { 'plug-a': 'github:owner/mono#path:/packages/plug-a', 'plug-b': 'github:owner/mono#path:/packages/plug-b' }
+    for (const name of Object.keys(deps)) {
+      mkdirSync(join(dir, 'node_modules', name), { recursive: true })
+      writeFileSync(join(dir, 'node_modules', name, 'package.json'), JSON.stringify({ name, version: '1.0.0', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+    }
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: deps }))
+    writeFileSync(join(dir, 'pnpm-lock.yaml'), [
+      'lockfileVersion: 9',
+      `  resolution: {gitHosted: true, integrity: sha512-aaa, path: /packages/plug-a, tarball: https://codeload.github.com/owner/mono/tar.gz/${HEAD}}`,
+      `  resolution: {gitHosted: true, integrity: sha512-bbb, path: /packages/plug-b, tarball: https://codeload.github.com/owner/mono/tar.gz/${OLD}}`,
+      '',
+    ].join('\n'))
+
+    const result = await checkUpdates('web', true, dir)
+    expect(result['plug-a']).toMatchObject({ kind: 'github', current: HEAD, latest: HEAD, updateAvailable: false })
+    expect(result['plug-b']).toMatchObject({ kind: 'github', current: OLD, latest: HEAD, updateAvailable: true })
+
+    // With the subpackage's version readable the version decides, and the
+    // commits only name unreleased work: plug-a, already at HEAD, has none.
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ version: '1.0.0' }),
+      text: async () => String(url).includes('info/refs')
+        ? `001e# service=git-upload-pack\n00000155${HEAD} HEAD\0multi_ack symref=HEAD:refs/heads/main\n`
+        : '',
+    })))
+    const byVersion = await checkUpdates('web', true, dir)
+    expect(byVersion['plug-a']).toMatchObject({ current: HEAD, updateAvailable: false })
+    expect(byVersion['plug-a']?.unreleasedCommit).toBeUndefined()
+    expect(byVersion['plug-b']).toMatchObject({ current: OLD, updateAvailable: false, unreleasedCommit: HEAD })
   })
 
   it('treats a bare owner/repo spec as npm, not as a github pin', async () => {
@@ -1611,4 +1650,45 @@ describe('readVersionMaturity — the exact version a dialog names (#945)', () =
   })
 
   afterEach(() => { vi.unstubAllGlobals() })
+})
+
+
+describe('host-compatible historical update selection (#1307)', () => {
+  const host = { version: '0.2.2-rc.5', packages: new Set<string>() }
+  const name = 'dsh-example'
+  const now = Date.parse('2026-11-26T00:00:00Z')
+  const old = '2026-11-20T00:00:00Z'
+  const young = '2026-11-25T23:00:00Z'
+  const release = (version: string, range?: string) => ({ name, version, ...(range ? { engines: { dsh: range } } : {}) })
+  const history = {
+    'dist-tags': { latest: '3.0.0' },
+    versions: {
+      '1.0.0': release('1.0.0', '>=0.2.2-rc.3'),
+      '1.1.0': release('1.1.0', '>=0.2.2-rc.3'),
+      '1.2.0': release('1.2.0'),
+      '1.3.0': release('1.3.0', '>=0.2.2-rc.3'),
+      '1.4.0-beta.1': release('1.4.0-beta.1', '>=0.2.2-rc.3'),
+      '1.5.0': release('1.5.0', '>=0.2.3-alpha.2'),
+      '3.0.0': release('3.0.0', '>=0.2.3-alpha.2'),
+      '4.0.0': release('4.0.0', '>=0.2.2-rc.3'),
+    },
+    time: { '1.0.0': old, '1.1.0': old, '1.2.0': old, '1.3.0': young, '1.4.0-beta.1': old, '1.5.0': old, '3.0.0': old, '4.0.0': old },
+  }
+  it('uses a known-compatible upgrade within the original ceiling, not an unknown, newer tag, or stable-to-prerelease transition', () => {
+    expect(compatibleUpdateInHistory(history, name, '1.0.0', '1.5.0', '3.0.0', host, true)).toBe('1.3.0')
+    expect(compatibleUpdateInHistory(history, name, '1.0.0', '1.5.0', '3.0.0', host, false)).toBe('1.4.0-beta.1')
+    expect(compatibleUpdateInHistory(history, name, '1.3.0', '1.5.0', '3.0.0', host, true)).toBeNull()
+  })
+  it('does not promote a compatible but young release over a mature one', () => {
+    const maturity = { minimumReleaseAgeMs: 24 * 3_600_000 }
+    expect(compatibleUpdateInHistory(history, name, '1.0.0', '1.5.0', '3.0.0', host, true, maturity, now)).toBe('1.1.0')
+    expect(compatibleUpdateInHistory(history, name, '1.0.0', '1.5.0', '3.0.0', host, true, {
+      ...maturity, exemptVersions: new Set(['1.3.0']),
+    }, now)).toBe('1.3.0')
+  })
+  it('distinguishes inconsistent/unavailable history from no compatible upgrade', () => {
+    expect(compatibleUpdateInHistory({}, name, '1.0.0', '1.5.0', '3.0.0', host, true)).toBeUndefined()
+    expect(compatibleUpdateInHistory(history, name, '1.0.0', '1.5.0', '2.0.0', host, true)).toBeUndefined()
+    expect(compatibleUpdateInHistory(history, name, '1.3.0', '1.5.0', '3.0.0', host, true)).toBeNull()
+  })
 })

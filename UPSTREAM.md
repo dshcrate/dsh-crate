@@ -68,6 +68,8 @@ npm run build:client
 
 目录条目契约：`dsh-crate.json` 每条带 `a`（我方首次收录时间，ISO），由网页端 `dshcrate-web` 的 `MarketEntry.a` 生成；`asCratePlugin` 必须把 `row.a` 映射到 `added`，缺失、空串、非法日期或非字符串一律退回 `''`。
 
+卡片图片契约：`dsh-crate.json` 可选带 `sh`（最多 3 张精选截图）与 `ic`（图标），由网页端从上游目录保留并经 `enrichCatalogMedia` 全量回填；`asCratePlugin` 映射到 `screenshots` / `icon`，只收 https、去重、最多 3 张，缺失就不设置。不从 README 逐卡抓图，没有精选图就保持纯文字卡片。
+
 客户端依赖这个字段：
 
 - 「最近收录」按 `added` 最近 7 天过滤，空值会被跳过
@@ -130,10 +132,15 @@ npm run build:client
 - v1.80.3 起宿主请求网关优先用 `connection.admit`（`src/index.ts` 的 `gateScope` + `src/http.ts` 的 `admissionFacts`）；这段必须逐块合并，丢掉会让 0.2.3 宿主所有市场路由 403
 - v1.80.3 新增 `tests/setup/jsdom-storage.ts`（Node 26 `localStorage` 遮蔽修复）；本仓原有的 `tests/setup/storage-globals.ts` 仍保留，`vitest.config.ts` 两者都挂，`jsdom-storage` 在前
 - v1.80.2/3 的赞助商数据取上游 `sponsors.json` 与 `assets/partners/modelgo-*.svg`，但 `src/client/sponsors.generated.ts` 必须保留 `SHOW_SPONSORS = false`；`tests/web/sponsor-sidebar.e2e.ts` 在本地按 `SHOW_SPONSORS` 跳过，否则必红
-- 外部赞助商 URL（如 `https://dsh-market.hualong-ai.com/`、`utm_source=dsh-market`）不做品牌回写；只回写代码标识、路由与产品名
+- 外部赞助商 URL（如 `https://dsh-market.hualong-ai.com/`、`utm_source=dsh-market`、`campaign_id=dsh-market`）不做品牌回写；只回写代码标识、路由与产品名。2026-11-28 批量回写曾误改 `src/client/sponsors.generated.ts` 的 `campaign_id`，该文件应整份保持 HEAD，不参与品牌替换
 - `src/crate-catalog.ts` 的 `a → added` 映射是「最近收录」和「收录时间」排序的唯一数据来源；上游没有这个文件，`a` 字段由网页端 `MarketEntry.a` 生成。同步时不要删除本仓专属文件，也不要把 `added` 改回空串（2026-11-25 加）
 - v1.84.2 起 `MarketTabs.tsx` 的最近收录会自动翻页；该文件还有两处本地路由定制（`/dsh-crate/backup`、`/dsh-crate/webdav`），整文件取上游后必须回贴，否则备份与 WebDAV 会打到不存在的 `/dsh-market/*`
 - v1.81.0/1 的 `sponsored-plugins` 置顶必须在 `market-install.ts` 调用处按 `SHOW_SPONSORS` 关闭；只关 logo 会继续把赞助商插件放到「最近收录」最前面
+- v1.85.0 起 `MarketLayout.tsx` 上游自带「任一高度非有限或 ≤0 就跳过平衡」的守卫，已覆盖本地 jsdom 保护；合并时直接用上游守卫，不要回贴旧的 `every(height => height === 0)` 判断
+- v1.85.0 的 `desktop-update.e2e.ts` 已按 settings / restart / reinstall / in-place 四种宿主模式分支，不再需要本地 `<0.2.1` 跳过；合并后不要回贴旧的 `describe.skipIf` 门
+- v1.85.0 品牌回写还要覆盖大写环境变量 `DSH_MARKET_*`、行首对象键 `dsh-crate:`、属性访问 `.dsh-crate`；`tests/brand-guard.spec.ts` 与 `tests/web/desktop-settings.e2e.ts` 的禁用词和历史正则不能参与批量回写，否则防护会自伤
+- `routes.ts` 的 `settledRoutes` + `buildRouteTable()` + try/catch 是 #1309 的注册失败清理逻辑，必须保留；路由路径继续用 `/dsh-crate/*`
+- v1.85.0 新增 `findPluginCommand` 配置（`src/index.ts` 的 type、zod 与提前 return）和 `official-desktop.ts` 的 `updatable` 兼容行，逐块合并，不要整文件覆盖
 
 ## 同步后品牌自检（每次必跑）
 
@@ -177,5 +184,6 @@ npm run build:client
 | 2026-11-24 | v1.80.3 → v1.81.1（`upstream/main` `ddf2424`） | `53b8d2a`（赞助商插件置顶、最近收录卡片变高）、`fdab350`（README 安装说明）、`ddf2424`（头部与 logo 对齐、AI 提示移到搜索框下、最近收录名称/描述打开详情弹窗、新版标签显示可更新时间） | 本次提交（0.6.4） | README/`scripts/sponsors.mjs` 跳过；保护文件逐块合并；`sponsored-plugins` 置顶按 `SHOW_SPONSORS` 关闭；`locales.ts` 新增两键并保留本地品牌；`client.js` 本地重建 |
 | 2026-11-25 | v1.81.1 → v1.84.1（`nightly1014` `b8147f2`） | `04a98ff`（官方桌面走宿主 `updateBundle`，市场自身也走宿主）、`7f370dd`（宿主原地替换后报告 live）、`7249559`/`7f370dd`（0.2.1 保留 remove+install）、`0bb6f28`（registry 无 bundle 回退、下载缺失提示）、`37fcc52`（赞助商行悬停大卡片）、`056229e`（按实测高度平衡瀑布流）、`8a68ceb`（Tasks 按钮显示 Uninstalling/Updating）、`188c1fc`（记住每页条数、表达式门控可重新开启）、`235f488`（目录分页下发）、`ac39cdb`（Installed 页显示被关闭但可更新的数量） | 本次提交（0.6.5） | README/站点/`scripts/sponsors.mjs`/版本号 `1.84.1` 跳过；保护文件三方合并，保留 `dsh-crate` 身份、logo 15px+右移 2px、投稿 `/submit`、`SHOW_SPONSORS=false`、giscus、设置页吸顶；`sponsored-plugins` 置顶继续按开关关闭；新增 `desktop-update.e2e.ts` 按宿主版本跳过 0.2.1 以下；`Masonry` 零高度时保持交替分列；`client.js` 与 `lib/` 本地重建；测试基线 4,465 通过 / 3 跳过 |
 | 2026-11-27 | v1.84.1 → v1.84.2（`nightly1014` `325c5bc`） | `06a0588`/`ab74033`/`739750e`（最近收录每 10 秒自动翻页，悬停/聚焦/隐藏标签页暂停，减少动态效果直接跳转）、`86d1026`（#1306 registry latest 读不到时记 warn） | 本次提交（0.6.7） | `telemetry/schema.sql`（本仓无该文件）、版本号 `1.84.2` 跳过；`MarketTabs.tsx` 保留 `/dsh-crate/backup`、`/dsh-crate/webdav` 两处本地路由；`routes.ts` 逐块合并；新增测试品牌回写为 `dsh-crate`；`client.js` 与 `lib/` 本地重建；测试基线 4,469 通过 / 3 跳过 |
+| 2026-11-28 | v1.84.2 → v1.85.0（`nightly1014` `0229558`） | `0981e2d`（待激活插件默认下次重启生效）、`d4f3b72`（Desktop 更新失败恢复 bundle 行、不再假称可重试）、`858a818`（0.14 bundle 行 `updatable` 视为可更新）、`0adfbba`（排名卡片保持顺序）、`43d92f0`（按运行宿主解析更新兼容性）、`5cf2c1f`（注册失败撤销已挂路由）、`65fe798`（`findPluginCommand` 可关闭）、`59aa08d`（peer 增加 `^0.2.2-rc.1`）、`1de3a7e`/`48de0f5`（`#path:` 子包提交、git 代理/网络失败分类） | 本次提交（0.6.9） | README/TESTING/版本号 `1.85.0` 跳过；保护文件逐块合并；`MarketLayout.tsx` 直接采用上游「任一高度非有限或 ≤0 就跳过」守卫；`desktop-update.e2e.ts` 采用上游 settings/restart/reinstall/in-place 四模式，不再保留本地 `<0.2.1` 跳过；品牌回写后修 4 处语法；`client.js` 与 `lib/` 本地重建；测试基线 4,521 通过 / 3 跳过 |
 
 新的同步完成后，在表里追加一行：上游版本范围、采纳的 commit、对应的本地 commit、跳过项及原因。

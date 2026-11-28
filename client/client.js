@@ -424,6 +424,11 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			installedBadge: "✓ 已安装",
 			alreadyInstalled: "✓ 已安装",
 			restartBanner: "项变更需重启 DeepSeek Harness 后生效",
+			applyOnRestart: "重启后生效",
+			activationDeferred: "将在下次启动 DeepSeek Harness 时生效。",
+			reloadMarketNow: "立即重载插件箱子",
+			reloadMarketWarning: "重载插件箱子会替换运行中的模块并刷新此页面，可能中断会话中正在生成的回复或工具调用。",
+			restartHostWarning: "重启 DeepSeek Harness 会停止当前宿主，可能中断所有会话中正在生成的回复或工具调用。",
 			addMenuMarket: "从插件箱子安装",
 			addMenuMarketHint: "12,000+ 社区插件，装前看清它会做什么",
 			staleServer: "市场已经更新，但后台还在运行旧版本，这个功能要等它换成新版后才能用。按页面顶部的提示操作即可。",
@@ -585,6 +590,11 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			linkedDev: "本地开发",
 			hostUpdateReady: "有新版本 {0}",
 			hostUpdateHint: "本市场由桌面端安装和更新，新版本请在桌面端更新",
+			hostUpdateBlockedBeside: "DSH 不兼容",
+			hostUpdateBlockedBesideRequirement: "需要 DSH {0}",
+			hostUpdateBlockedRequirement: "{0} 需要 DSH {1}，当前 DSH 没有兼容的更新。",
+			hostUpdateBlockedUnknown: "{0} 不支持当前 DSH，没有兼容的更新。",
+			updateTargetChanged: "更新目标已变化，已跳过。请重新选择更新。",
 			notesLink: "更新内容",
 			notesRelease: "版本说明",
 			notesHistory: "本次更新",
@@ -1429,7 +1439,12 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			installing: "Installing…",
 			installedBadge: "✓ Installed",
 			alreadyInstalled: "✓ Installed",
-			restartBanner: "change(s) pending restart — restart DeepSeek Harness to apply",
+			restartBanner: "change(s) will take effect on the next DeepSeek Harness restart",
+			applyOnRestart: "Apply on next restart",
+			activationDeferred: "Will apply on the next DeepSeek Harness restart.",
+			reloadMarketNow: "Reload Plugin Crate now",
+			reloadMarketWarning: "Reloading Plugin Crate replaces running modules and refreshes this page. This can interrupt streaming replies or tool calls in progress.",
+			restartHostWarning: "Restarting DeepSeek Harness stops the current host. This can interrupt streaming replies or tool calls in any session.",
 			addMenuMarket: "Browse the Plugin Crate",
 			addMenuMarketHint: "Find one of 12,000+ community plugins and install it in one click",
 			staleServer: "The market was updated, but the old version is still running in the background, so this is not available until it switches. Follow the notice at the top of the page.",
@@ -1591,6 +1606,11 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			linkedDev: "local",
 			hostUpdateReady: "New version {0}",
 			hostUpdateHint: "Installed and updated by the desktop app; update it there.",
+			hostUpdateBlockedBeside: "DSH incompatible",
+			hostUpdateBlockedBesideRequirement: "Needs DSH {0}",
+			hostUpdateBlockedRequirement: "Version {0} requires DSH {1}. No compatible update is currently available.",
+			hostUpdateBlockedUnknown: "Version {0} does not support this DSH. No compatible update is currently available.",
+			updateTargetChanged: "The update target changed, so this task was skipped. Choose the update again.",
 			notesLink: "What changed",
 			notesRelease: "Release notes",
 			notesHistory: "This update",
@@ -2436,6 +2456,11 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			installedBadge: "✓ インストール済み",
 			alreadyInstalled: "✓ インストール済み",
 			restartBanner: "件の変更は DeepSeek Harness の再起動後に有効になります",
+			applyOnRestart: "次回の起動時に適用",
+			activationDeferred: "次回 DeepSeek Harness を起動したときに適用されます。",
+			reloadMarketNow: "今すぐプラグインボックスを再読み込み",
+			reloadMarketWarning: "プラグインボックスを再読み込みすると、実行中のモジュールが入れ替わり、このページが更新されます。生成中の応答や実行中のツール呼び出しが中断されることがあります。",
+			restartHostWarning: "DeepSeek Harness を再起動すると、現在のホストが停止します。どのセッションでも、生成中の応答や実行中のツール呼び出しが中断されることがあります。",
 			addMenuMarket: "プラグインボックスから入れる",
 			addMenuMarketHint: "12,000 以上のコミュニティプラグインから探してワンクリックで導入",
 			staleServer: "マーケットは更新されましたが、バックグラウンドではまだ旧バージョンが動いているため、この機能は切り替わるまで使えません。ページ上部の案内に従ってください。",
@@ -2597,6 +2622,11 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			linkedDev: "ローカル開発",
 			hostUpdateReady: "新しいバージョン {0} があります",
 			hostUpdateHint: "このマーケットはデスクトップアプリがインストールと更新を行います。新しいバージョンへの更新はデスクトップアプリで行ってください",
+			hostUpdateBlockedBeside: "DSH と非互換",
+			hostUpdateBlockedBesideRequirement: "DSH {0} が必要",
+			hostUpdateBlockedRequirement: "バージョン {0} には DSH {1} が必要です。現在の DSH に対応する更新はありません。",
+			hostUpdateBlockedUnknown: "バージョン {0} は現在の DSH に非対応です。対応する更新はありません。",
+			updateTargetChanged: "更新先が変わったためスキップしました。更新を選び直してください。",
 			notesLink: "変更内容",
 			notesRelease: "リリースノート",
 			notesHistory: "今回の更新",
@@ -3893,6 +3923,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				if (row.restore === true && world.updates[row.name]?.kind === "linked" && findCatalogEntryForLocal(world.plugins, row.name) !== null) return null;
 				return "no-update";
 			}
+			if (row.kind === "update" && row.compatVersion === void 0 && row.restore !== true && row.compatibleVersion !== world.updates[row.name]?.compatibleVersion) return "target-changed";
 			if (row.kind === "update" && row.eligibleVersion !== void 0 && row.eligibleVersion !== world.updates[row.name]?.eligibleVersion) return "target-changed";
 			return null;
 		}
@@ -5202,21 +5233,36 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 		* keeps the ranking reading top-down; the last few are tried in every
 		* arrangement and the one whose columns end closest together wins, because
 		* that is where a ragged bottom edge shows (at most 3^9 arrangements).
+		* Incomplete measurements preserve the original ranked deal. Equally good
+		* layouts favour the earlier ranks' shortest-column assignments, rather than
+		* whichever mirrored/reordered arrangement the enumeration happened to visit.
 		*/
 		function balanceColumns(heights, columns, gap = 10) {
+			for (const measured of heights) if (!Number.isFinite(measured) || measured <= 0) return Array.from({ length: heights.length }, (_item, index) => index % columns);
 			const tail = Math.min(heights.length, columns === 2 ? 12 : 9);
 			const head = heights.length - tail;
 			const height = (index) => (heights[index] ?? 0) + gap;
 			const depth = Array.from({ length: columns }, () => 0);
-			const placed = [];
-			for (let index = 0; index < head; index += 1) {
+			const placeShortest = (index, depths) => {
 				let shortest = 0;
-				for (let column = 1; column < columns; column += 1) if (depth[column] < depth[shortest]) shortest = column;
-				depth[shortest] += height(index);
-				placed.push(shortest);
-			}
-			let best = [];
-			let bestSpread = Infinity;
+				for (let column = 1; column < columns; column += 1) if (depths[column] < depths[shortest]) shortest = column;
+				depths[shortest] += height(index);
+				return shortest;
+			};
+			const placed = Array.from({ length: head }, (_item, index) => placeShortest(index, depth));
+			const greedyDepth = depth.slice();
+			const greedy = Array.from({ length: tail }, (_item, slot) => placeShortest(head + slot, greedyDepth));
+			let best = greedy;
+			let bestSpread = Math.max(...greedyDepth) - Math.min(...greedyDepth);
+			const prefersRank = (picks, current) => {
+				for (let slot = 0; slot < tail; slot += 1) {
+					if (picks[slot] === current[slot]) continue;
+					if (picks[slot] === greedy[slot]) return true;
+					if (current[slot] === greedy[slot]) return false;
+					return picks[slot] < current[slot];
+				}
+				return false;
+			};
 			for (let code = 0; code < columns ** tail; code += 1) {
 				const trial = depth.slice();
 				const picks = [];
@@ -5226,7 +5272,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 					trial[column] += height(head + slot);
 				}
 				const spread = Math.max(...trial) - Math.min(...trial);
-				if (spread < bestSpread - 1) {
+				if (spread < bestSpread - 1 || spread === bestSpread && prefersRank(picks, best)) {
 					bestSpread = spread;
 					best = picks;
 				}
@@ -5238,6 +5284,13 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			if (!Number.isFinite(width) || width <= 0) return minColumns;
 			const fitted = Math.floor((width + 10) / minColWidth);
 			return Math.min(maxColumns, Math.max(minColumns, fitted));
+		}
+		/** The same version the update action will request. */
+		function offeredUpdateVersion(status) {
+			return status.compatibleVersion ?? status.eligibleVersion ?? status.latest ?? null;
+		}
+		function hostUpdateBlockedText(blocked, t) {
+			return blocked.requirement === null ? t("hostUpdateBlockedUnknown").replace("{0}", blocked.version) : t("hostUpdateBlockedRequirement").replace("{0}", blocked.version).replace("{1}", blocked.requirement);
 		}
 		/**
 		* The one plain sentence for "another release in this profile is still inside
@@ -8992,7 +9045,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			const saved = readSession(IGNORED_UPDATES_SESSION_KEY$1);
 			if (saved === null || typeof saved !== "object" || Array.isArray(saved) || saved.boot !== boot || !Array.isArray(saved.names) || !saved.names.every((name) => typeof name === "string" && name !== "")) {
 				if (clearStale) try {
-					window.sessionStorage.removeItem(IGNORED_UPDATES_SESSION_KEY$1);
+					sessionStorage.removeItem(IGNORED_UPDATES_SESSION_KEY$1);
 				} catch {}
 				return [];
 			}
@@ -9002,18 +9055,27 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 		function ignoredUpdatesForBoot(boot) {
 			return readIgnoredUpdates(boot, true);
 		}
-		/** The attention count excludes dismissed, disabled and already-completed updates. */
-		function notificationNames(snapshot) {
+		/** Attention and the expanded review both respect quiet rows. */
+		function quietNames(snapshot) {
 			const restart = readSession(RESTART_SESSION_KEY);
 			const updated = restart?.boot === snapshot.boot && Array.isArray(restart.updated) ? restart.updated.filter((name) => typeof name === "string") : [];
-			const quiet = /* @__PURE__ */ new Set([
+			return /* @__PURE__ */ new Set([
 				...snapshot.updateExempt,
 				...snapshot.disabled,
 				...snapshot.blocked,
 				...readIgnoredUpdates(snapshot.boot, false),
 				...updated
 			]);
+		}
+		/** The attention count excludes dismissed, disabled and already-completed updates. */
+		function notificationNames(snapshot) {
+			const quiet = quietNames(snapshot);
 			return Object.entries(snapshot.updates).filter(([name, status]) => !quiet.has(name) && status.notAPlugin !== true && (status.updateAvailable === true || status.kind === "generation" && status.latest != null)).map(([name]) => name).sort();
+		}
+		/** These releases need a different host, not a badge or an update action. */
+		function hostBlockedNotificationNames(snapshot) {
+			const quiet = quietNames(snapshot);
+			return Object.entries(snapshot.updates).filter(([name, status]) => !quiet.has(name) && status.hostUpdateBlocked !== void 0 && status.updateAvailable !== true).map(([name]) => name).sort();
 		}
 		const seenInMemory = /* @__PURE__ */ new Map();
 		const unpersistedSeen = /* @__PURE__ */ new Set();
@@ -9064,7 +9126,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				status.kind ?? null,
 				status.current ?? null,
 				status.version ?? null,
-				status.eligibleVersion ?? status.latest ?? null,
+				offeredUpdateVersion(status),
 				status.restoreRequired === true,
 				migration?.kind === "git-to-npm" ? [
 					migration.kind,
@@ -9117,7 +9179,11 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				"current",
 				"latest",
 				"version"
-			].every((key) => value[key] === void 0 || value[key] === null || typeof value[key] === "string") && ["kind", "eligibleVersion"].every((key) => value[key] === void 0 || typeof value[key] === "string") && (value.checkError === void 0 || value.checkError === "unavailable") && (value.checkFailed === void 0 || value.checkFailed === true);
+			].every((key) => value[key] === void 0 || value[key] === null || typeof value[key] === "string") && [
+				"kind",
+				"eligibleVersion",
+				"compatibleVersion"
+			].every((key) => value[key] === void 0 || typeof value[key] === "string") && (value.hostUpdateBlocked === void 0 || isRecord(value.hostUpdateBlocked) && typeof value.hostUpdateBlocked.version === "string" && typeof value.hostUpdateBlocked.hostVersion === "string" && (typeof value.hostUpdateBlocked.requirement === "string" || value.hostUpdateBlocked.requirement === null)) && (value.checkError === void 0 || value.checkError === "unavailable") && (value.checkFailed === void 0 || value.checkFailed === true);
 		}
 		/** Reject a malformed local response instead of replacing a useful cached result. */
 		function readSnapshot(value) {
@@ -9504,7 +9570,8 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				...typeof options.force === "boolean" ? { force: options.force } : {},
 				...typeof options.restore === "boolean" ? { restore: options.restore } : {},
 				...asText(options.compatVersion) === void 0 ? {} : { compatVersion: asText(options.compatVersion) },
-				...asText(options.eligibleVersion) === void 0 ? {} : { eligibleVersion: asText(options.eligibleVersion) }
+				...asText(options.eligibleVersion) === void 0 ? {} : { eligibleVersion: asText(options.eligibleVersion) },
+				...asText(options.compatibleVersion) === void 0 ? {} : { compatibleVersion: asText(options.compatibleVersion) }
 			} : void 0;
 			return {
 				id,
@@ -9921,7 +9988,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 		function isUpdateStatus(value) {
 			if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
 			const status = value;
-			return typeof status.updateAvailable === "boolean" && (status.checkFailed === void 0 || status.checkFailed === true) && (status.checkError === void 0 || status.checkError === "unavailable") && (status.kind === void 0 || typeof status.kind === "string") && (status.version === void 0 || status.version === null || typeof status.version === "string") && (status.latest === void 0 || status.latest === null || typeof status.latest === "string") && (status.current === void 0 || status.current === null || typeof status.current === "string");
+			return typeof status.updateAvailable === "boolean" && (status.checkFailed === void 0 || status.checkFailed === true) && (status.checkError === void 0 || status.checkError === "unavailable") && (status.kind === void 0 || typeof status.kind === "string") && (status.version === void 0 || status.version === null || typeof status.version === "string") && (status.latest === void 0 || status.latest === null || typeof status.latest === "string") && (status.current === void 0 || status.current === null || typeof status.current === "string") && (status.compatibleVersion === void 0 || typeof status.compatibleVersion === "string") && (status.hostUpdateBlocked === void 0 || status.hostUpdateBlocked !== null && typeof status.hostUpdateBlocked.version === "string" && typeof status.hostUpdateBlocked.hostVersion === "string" && (typeof status.hostUpdateBlocked.requirement === "string" || status.hostUpdateBlocked.requirement === null));
 		}
 		function readUpdateStatuses(body) {
 			const updates = body?.updates;
@@ -10549,6 +10616,8 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 						kind,
 						name,
 						restore: options.restore === true,
+						...typeof options.compatVersion === "string" ? { compatVersion: options.compatVersion } : {},
+						...typeof options.compatibleVersion === "string" ? { compatibleVersion: options.compatibleVersion } : {},
 						...typeof options.eligibleVersion === "string" ? { eligibleVersion: options.eligibleVersion } : {},
 						...url === void 0 ? {} : { url }
 					}, {
@@ -10556,13 +10625,14 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 						updates,
 						plugins: data.plugins
 					});
-					if (verdict !== null) return stale(verdict === "target-changed" ? localizeBilingual("更新目标已变化，已跳过。请重新选择更新。 / The update target changed, so this task was skipped. Choose the update again.", lang) : verdict === "gone" ? t("agentQueueStaleGone") : t("agentQueueStaleNoUpdate"));
+					if (verdict !== null) return stale(verdict === "target-changed" ? t("updateTargetChanged") : verdict === "gone" ? t("agentQueueStaleGone") : t("agentQueueStaleNoUpdate"));
 					if (kind === "install" && url === void 0) return [];
 					const updateOptions = kind === "update" ? {
 						force: options.force === true,
 						restore: options.restore === true,
 						...typeof options.compatVersion === "string" ? { compatVersion: options.compatVersion } : {},
-						...typeof options.eligibleVersion === "string" ? { eligibleVersion: options.eligibleVersion } : {}
+						...typeof options.eligibleVersion === "string" ? { eligibleVersion: options.eligibleVersion } : {},
+						...typeof options.compatibleVersion === "string" ? { compatibleVersion: options.compatibleVersion } : {}
 					} : void 0;
 					return [{
 						ok: true,
@@ -10783,7 +10853,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			const [notesState, setNotesState] = (0, react.useState)("loading");
 			const notesRequest = (0, react.useRef)(null);
 			(0, react.useEffect)(() => () => notesRequest.current?.abort(), []);
-			const [staleName, setStaleName] = (0, react.useState)(null);
+			const [staleUpdate, setStaleUpdate] = (0, react.useState)(null);
 			const [restoreConfirm, setRestoreConfirm] = (0, react.useState)(null);
 			/** A release whose declared host requirement this host does not meet (#404). kind distinguishes the update dialog from the fresh-install dialog. */
 			const [hostIncompatible, setHostIncompatible] = (0, react.useState)(null);
@@ -11684,7 +11754,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				setSkins,
 				setSortDir,
 				setSortField,
-				setStaleName,
+				setStaleUpdate,
 				setStartupRepair,
 				setStuckExpanded,
 				setSupervisor,
@@ -11724,7 +11794,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				skins,
 				sortDir,
 				sortField,
-				staleName,
+				staleUpdate,
 				startupRepair,
 				statusRef,
 				stuckExpanded,
@@ -14018,7 +14088,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 		*/
 		/** restart, cancel, source migration, notes, block and dismiss flows. */
 		function useMarketOperations(c) {
-			const { blockOpGen, blockedNameSet, blockedNames, bootId, bootIdRef, brokenPlugins, data, dismissBrokenGen, doReplace, favoriteOpGen, favoriteStale, favoriteUrlSet, favoriteUrls, hotNames, installed, installedReadGen, lang, mounted, nextRecordId, notesRequest, pendingUpdate, profileBlockRef, recovery, recoveryBusy, recoveryKeep, refreshInstalled, refreshNames, refreshRepairStatus, rememberDrainMarker, repoHints, repoIdentities, restartHoldRef, restarting, setActivationWarnings, setActivations, setAgentsConfirm, setBlockError, setBlockNotice, setBlockedNames, setBrokenPlugins, setBuildsSkipped, setClearingStale, setCompatibilityNotice, setDismissBrokenError, setDismissingBroken, setFavoriteError, setFavoriteUrls, setHostIncompatible, setHotNames, setInstallError, setMigrationConfirm, setNotes, setNotesFor, setNotesState, setNotingName, setOperationsOpen, setRecords, setRecovery, setRecoveryBusy, setRecoveryKeep, setRecoveryOpen, setRefreshNames, setRemoveConfirm, setRemovedCount, setRemovingName, setRestartHold, setRestartNames, setRestarting, setRestoreBlocked, setRestoreConfirm, setStaleName, setUpdateExemptError, setUpdateExemptNames, setUpdateExemptNotice, setUpdateNotes, setUpdatedNames, setUpdatingName, statusRef, t, updateExemptNames, updateExemptOpGen, updateExemptSet, updateIdleStrikes, updates } = c;
+			const { blockOpGen, blockedNameSet, blockedNames, bootId, bootIdRef, brokenPlugins, data, dismissBrokenGen, doReplace, favoriteOpGen, favoriteStale, favoriteUrlSet, favoriteUrls, hotNames, installed, installedReadGen, lang, mounted, nextRecordId, notesRequest, pendingUpdate, profileBlockRef, recovery, recoveryBusy, recoveryKeep, refreshInstalled, refreshNames, refreshRepairStatus, rememberDrainMarker, repoHints, repoIdentities, restartHoldRef, restarting, setActivationWarnings, setActivations, setAgentsConfirm, setBlockError, setBlockNotice, setBlockedNames, setBrokenPlugins, setBuildsSkipped, setClearingStale, setCompatibilityNotice, setDismissBrokenError, setDismissingBroken, setFavoriteError, setFavoriteUrls, setHostIncompatible, setHotNames, setInstallError, setMigrationConfirm, setNotes, setNotesFor, setNotesState, setNotingName, setOperationsOpen, setRecords, setRecovery, setRecoveryBusy, setRecoveryKeep, setRecoveryOpen, setRefreshNames, setRemoveConfirm, setRemovedCount, setRemovingName, setRestartHold, setRestartNames, setRestarting, setRestoreBlocked, setRestoreConfirm, setStaleUpdate, setUpdateExemptError, setUpdateExemptNames, setUpdateExemptNotice, setUpdateNotes, setUpdatedNames, setUpdatingName, statusRef, t, updateExemptNames, updateExemptOpGen, updateExemptSet, updateIdleStrikes, updates } = c;
 			/**
 			* Answer a clash. `keep` is not a no-op to skip: it is the user declining
 			* the install, so the record retires rather than lingering as unanswered.
@@ -14188,17 +14258,35 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 					body: JSON.stringify(body)
 				}).catch(() => {});
 			}, []);
-			const doUpdate = (0, react.useCallback)((name, force = false, restore = false, compatVersion, confirmAgentsRunning = false, eligibleVersion, preferReject = false) => {
-				const expectedVersion = compatVersion === void 0 && !restore ? eligibleVersion ?? updates[name]?.eligibleVersion : void 0;
+			const doUpdate = (0, react.useCallback)((name, force = false, restore = false, compatVersion, confirmAgentsRunning = false, eligibleVersion, preferReject = false, selectedCompatibleVersion) => {
+				const status = updates[name];
+				const automatic = compatVersion === void 0 && !force && !restore;
+				if (automatic && (status?.hostUpdateBlocked !== void 0 || selectedCompatibleVersion !== void 0 && selectedCompatibleVersion !== (status?.compatibleVersion ?? null))) {
+					const reason = status?.hostUpdateBlocked === void 0 ? t("updateTargetChanged") : hostUpdateBlockedText(status.hostUpdateBlocked, t);
+					setRecords((list) => enqueue(list, {
+						id: nextRecordId(),
+						kind: "update",
+						name,
+						state: "failed",
+						reason
+					}));
+					setInstallError(reason);
+					setOperationsOpen(true);
+					return Promise.resolve();
+				}
+				const compatibleVersion = automatic ? status?.compatibleVersion : void 0;
+				const exactVersion = compatVersion ?? compatibleVersion;
+				const expectedVersion = exactVersion === void 0 && !restore ? eligibleVersion ?? status?.eligibleVersion : void 0;
 				const updateOptions = {
 					force,
 					restore,
 					compatVersion,
-					eligibleVersion: expectedVersion
+					eligibleVersion: expectedVersion,
+					...compatibleVersion === void 0 ? {} : { compatibleVersion }
 				};
 				setInstallError(null);
 				setActivationWarnings([]);
-				setStaleName((prev) => prev === name ? null : prev);
+				setStaleUpdate((prev) => prev?.name === name ? null : prev);
 				setRestoreConfirm((prev) => prev?.name === name ? null : prev);
 				setMigrationConfirm(null);
 				setUpdatingName(name);
@@ -14224,7 +14312,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 						name,
 						...force ? { force: true } : {},
 						...restore ? { restore: true } : {},
-						...compatVersion !== void 0 ? { compatVersion } : {},
+						...exactVersion !== void 0 ? { compatVersion: exactVersion } : {},
 						...expectedVersion !== void 0 ? { eligibleVersion: expectedVersion } : {},
 						...confirmAgentsRunning ? { confirmAgentsRunning: true } : {},
 						...!restore && statusRef.current.agentDrain && !preferReject ? { busyPolicy: "drain" } : {}
@@ -14317,7 +14405,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 					} else {
 						if (body.unsupported === true) {
 							setRecords((list) => drop(list, updateRecordId));
-							doUpdate(name, force, restore, compatVersion, confirmAgentsRunning, eligibleVersion, true);
+							doUpdate(name, force, restore, compatVersion, confirmAgentsRunning, eligibleVersion, true, compatibleVersion ?? null);
 							return;
 						}
 						if (status === 409 && releaseBlocked === null) {
@@ -14367,7 +14455,11 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 							});
 							return;
 						}
-						if (body.stale === true) setStaleName(name);
+						if (body.stale === true) setStaleUpdate({
+							name,
+							...exactVersion === void 0 ? {} : { exactVersion },
+							...compatibleVersion === void 0 ? {} : { compatibleVersion }
+						});
 						if (Array.isArray(body.ignoredBuilds) && body.ignoredBuilds.length > 0) setBuildsSkipped({
 							updateName: name,
 							names: body.ignoredBuilds.map(String),
@@ -14461,7 +14553,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			const askSourceMigration = (0, react.useCallback)((name) => {
 				const migration = updates[name]?.sourceMigration;
 				const source = installed[name];
-				setStaleName(null);
+				setStaleUpdate(null);
 				setRestoreConfirm(null);
 				setRestoreBlocked(null);
 				setInstallError(null);
@@ -14481,7 +14573,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				const spec = installed[name];
 				if (spec === void 0) return;
 				const specText = String(spec);
-				setStaleName(null);
+				setStaleUpdate(null);
 				setMigrationConfirm(null);
 				setRestoreBlocked(null);
 				if (/^(?:link|file):/i.test(specText)) {
@@ -15106,7 +15198,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 							if (task.kind === "install") {
 								const plugin = dataRef.current?.plugins.find((candidate) => candidate.url === task.url);
 								if (plugin !== void 0) doInstallRef.current?.(plugin);
-							} else if (task.kind === "update") doUpdateRef.current?.(task.name, task.updateOptions?.force, task.updateOptions?.restore, task.updateOptions?.compatVersion, false, task.updateOptions?.eligibleVersion);
+							} else if (task.kind === "update") doUpdateRef.current?.(task.name, task.updateOptions?.force, task.updateOptions?.restore, task.updateOptions?.compatVersion, false, task.updateOptions?.eligibleVersion, false, task.updateOptions?.compatibleVersion ?? null);
 							else doUninstallRef.current?.(task.name);
 						} finally {
 							drainingRef.current = false;
@@ -15152,7 +15244,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 					doInstall(plugin);
 				} else if (record.kind === "update") {
 					setRecords((prev) => drop(prev, record.id));
-					doUpdate(record.name, record.updateOptions?.force, record.updateOptions?.restore, record.updateOptions?.compatVersion, confirmAgentsRunning, record.updateOptions?.eligibleVersion);
+					doUpdate(record.name, record.updateOptions?.force, record.updateOptions?.restore, record.updateOptions?.compatVersion, confirmAgentsRunning, record.updateOptions?.eligibleVersion, false, record.updateOptions?.compatibleVersion ?? null);
 				} else {
 					setRecords((prev) => drop(prev, record.id));
 					doUninstall(record.name, confirmAgentsRunning);
@@ -15424,7 +15516,8 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 			const doUpdateAll = (0, react.useCallback)(() => {
 				const names = reminderBatchUpdatableNames.map((name) => ({
 					name,
-					eligibleVersion: updates[name]?.eligibleVersion
+					eligibleVersion: updates[name]?.eligibleVersion,
+					compatibleVersion: updates[name]?.compatibleVersion
 				}));
 				setUpdatingAll(true);
 				const next = () => {
@@ -15447,7 +15540,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 						refreshInstalled(true);
 						return;
 					}
-					doUpdate(item.name, false, false, void 0, false, item.eligibleVersion).then(next, next);
+					doUpdate(item.name, false, false, void 0, false, item.eligibleVersion, false, item.compatibleVersion ?? null).then(next, next);
 				};
 				next();
 			}, [
@@ -16667,7 +16760,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 					if (nodes.length !== dealt) return;
 					for (let slot = 0; slot < dealt; slot += 1) heights[slot * columns + column] = nodes[slot].getBoundingClientRect().height;
 				}
-				if (heights.every((height) => height === 0)) return;
+				if (heights.some((height) => !Number.isFinite(height) || height <= 0)) return;
 				const placed = balanceColumns(heights, columns);
 				setBalanced({
 					items,
@@ -18064,7 +18157,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				installedThemeNames
 			]);
 			const marketUpdateStatus = updates[selfName];
-			const eligibleMarketVersion = marketUpdateStatus?.updateAvailable === true ? marketUpdateStatus.eligibleVersion ?? marketUpdateStatus.latest ?? null : null;
+			const eligibleMarketVersion = marketUpdateStatus?.updateAvailable === true ? offeredUpdateVersion(marketUpdateStatus) : null;
 			const heldMarketVersion = marketUpdateStatus?.heldUpdate;
 			const showMarketWait = typeof heldMarketVersion?.latest === "string" && heldMarketVersion.latest !== "" && heldMarketVersion.latest !== eligibleMarketVersion && !updatedNames.includes(selfName) && !quietUpdateSet.has(selfName);
 			const marketOffer = (() => {
@@ -18073,7 +18166,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				if (!status || !status.updateAvailable || updatedNames.includes(self) || quietUpdateSet.has(self)) return null;
 				return {
 					name: self,
-					version: status.eligibleVersion ?? status.latest ?? null,
+					version: offeredUpdateVersion(status),
 					restoreRequired: status.restoreRequired === true
 				};
 			})();
@@ -18136,6 +18229,53 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				marketOffer,
 				takeMarketOffer
 			};
+		}
+		//#endregion
+		//#region src/client/ActivationActions.tsx
+		/** The install or update is already on disk. Deferring only acknowledges it. */
+		function ActivationActions({ t, action, label, working, busy, onImmediate, offerDefer = true }) {
+			const [deferred, setDeferred] = (0, react.useState)(false);
+			const [confirming, setConfirming] = (0, react.useState)(null);
+			const confirmLabel = t(action === "reload" ? "reloadMarketNow" : "restartNow");
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+				offerDefer && (deferred ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					role: "status",
+					children: t("activationDeferred")
+				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+					variant: "primary",
+					size: "sm",
+					disabled: working,
+					onClick: () => setDeferred(true),
+					children: t("applyOnRestart")
+				})),
+				action !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+					variant: "ghost",
+					size: "sm",
+					disabled: working || busy,
+					onClick: () => setConfirming(action),
+					children: working ? t("restarting") : label
+				}),
+				action !== null && confirming === action && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Modal, {
+					open: true,
+					onClose: () => setConfirming(null),
+					title: confirmLabel,
+					description: t(action === "reload" ? "reloadMarketWarning" : "restartHostWarning"),
+					footer: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+						variant: "ghost",
+						autoFocus: true,
+						onClick: () => setConfirming(null),
+						children: t("cancel")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+						variant: "primary",
+						disabled: working || busy,
+						onClick: () => {
+							setConfirming(null);
+							onImmediate();
+						},
+						children: confirmLabel
+					})] })
+				})
+			] });
 		}
 		//#endregion
 		//#region src/client/OperationsPanel.tsx
@@ -18641,7 +18781,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 		}
 		//#endregion
 		//#region src/client/client-version.ts
-		const CLIENT_VERSION = "0.6.8";
+		const CLIENT_VERSION = "0.6.9";
 		/** Numeric x.y.z comparison; prerelease tags are ignored. null if either is not a version. */
 		function compareMarketVersions(a, b) {
 			const parse = (v) => {
@@ -18886,6 +19026,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				}
 			};
 			const entries = notificationNames(snapshot).map((name) => [name, snapshot.updates[name]]);
+			const waiting = hostBlockedNotificationNames(snapshot).map((name) => [name, snapshot.updates[name]]);
 			const failedNotice = failed || snapshot.stale && snapshot.error !== null;
 			const changedNotice = !failedNotice && snapshot.stale;
 			const state = failedNotice ? t("updateChecksFailed") : changedNotice ? t("updateChecksChanged") : snapshot.checking || pending ? t("updateChecksChecking") : snapshot.checkedAt === null ? t("updateChecksPending") : entries.length > 0 ? t("updateChecksFound").replace("{0}", String(entries.length)) : t("updateChecksNone");
@@ -18976,7 +19117,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [
 									status.version ?? status.current ?? "—",
 									" → ",
-									status.eligibleVersion ?? status.latest
+									offeredUpdateVersion(status)
 								] }),
 								status.kind === "generation" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("hostUpdateHint") })
 							]
@@ -18989,9 +19130,16 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 							variant: "ghost",
 							size: "sm",
 							disabled: busy || snapshot.disabled.includes(name),
-							onClick: () => onUpdate(name),
+							onClick: () => onUpdate(name, status.compatibleVersion ?? null),
 							children: t(status.restoreRequired ? "restoreOnline" : "update")
 						})] }, name))
+					}),
+					waiting.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+						className: Market_module_css_default.updateChecksList,
+						children: waiting.map(([name, status]) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("li", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: Market_module_css_default.updateChecksPackage,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", { children: name }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: hostUpdateBlockedText(status.hostUpdateBlocked, t) })]
+						}) }, name))
 					})
 				]
 			});
@@ -19003,7 +19151,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 		*/
 		const MARKET_OFFER_CLOSED_KEY = "dshm-market-offer-closed";
 		function MarketHead({ c }) {
-			const { activationWarnings, approveAndRetry, askRestore, backupBusy, backupMessage, blockedNames, bootId, brokenPluginNames, brokenPlugins, buildsSkipped, busyUrl, checkingUpdates, checkoutRecovery, compatibilityNotice, compatibilitySummary, configNamespaceIssues, data, debuggerLatch, describePlugin, dismissBrokenError, dismissBrokenPlugin, dismissingBroken, doCancel, doExportLog, doInstall, doRestart, doRollback, doUpdate, eligibleMarketVersion, enableSidebar, undoSidebar, showSidebarAdded, envFailed, envFixing, envReady, exportState, favoriteTabCount, fixEnv, hasUpdates, headRef, heldMarketVersion, hostBusy, hostDependencyFindings, hotNames, installError, installedOtherCount, lang, marketGone, missingRestoreCount, notificationSnapshot, openInHost, operationsOpen, pendingBackup, pendingRefreshNames, pendingRestart, profileBlocked, records, recordsRef, recovery, refreshInstalled, removingName, replacing, resolveConflict, restartEnabled, restartHold, restartReachable, restarting, restoreErrors, rollingBack, runQueuedNow, setBuildsSkipped, setCat, setOperationsOpen, setQ, setRecords, setRecoveryOpen, setRestartNoticeDismissed, setRestoreConfirmOpen, setSidebarTipDismissed, setTab, shadowSummary, showHostPending, showMarketWait, showSidebarTip, sidebarTipError, sidebarTipSaving, staleName, startupRepair, supervisor, surface, t, tab, themeSnap, uiLocale, updateCheckFailed, updates, updatingName, version, marketOffer, takeMarketOffer, hostCaps, restartNames, updatedNames, activations } = c;
+			const { activationWarnings, approveAndRetry, askRestore, backupBusy, backupMessage, blockedNames, bootId, brokenPluginNames, brokenPlugins, buildsSkipped, busyUrl, checkingUpdates, checkoutRecovery, compatibilityNotice, compatibilitySummary, configNamespaceIssues, data, debuggerLatch, describePlugin, dismissBrokenError, dismissBrokenPlugin, dismissingBroken, doCancel, doExportLog, doInstall, doRestart, doRollback, doUpdate, eligibleMarketVersion, enableSidebar, undoSidebar, showSidebarAdded, envFailed, envFixing, envReady, exportState, favoriteTabCount, fixEnv, hasUpdates, headRef, heldMarketVersion, hostBusy, hostDependencyFindings, hotNames, installError, installedOtherCount, lang, marketGone, missingRestoreCount, notificationSnapshot, openInHost, operationsOpen, pendingBackup, pendingRefreshNames, pendingRestart, profileBlocked, records, recordsRef, recovery, refreshInstalled, removingName, replacing, resolveConflict, restartEnabled, restartHold, restartReachable, restarting, restoreErrors, rollingBack, runQueuedNow, setBuildsSkipped, setCat, setOperationsOpen, setQ, setRecords, setRecoveryOpen, setRestartNoticeDismissed, setRestoreConfirmOpen, setSidebarTipDismissed, setTab, shadowSummary, showHostPending, showMarketWait, showSidebarTip, sidebarTipError, sidebarTipSaving, staleUpdate, startupRepair, supervisor, surface, t, tab, themeSnap, uiLocale, updateCheckFailed, updates, updatingName, version, marketOffer, takeMarketOffer, hostCaps, restartNames, updatedNames, activations } = c;
 			const [reloadingSelf, setReloadingSelf] = (0, react.useState)("idle");
 			const [reloadError, setReloadError] = (0, react.useState)("");
 			const staleServer = serverIsBehind(version);
@@ -19030,7 +19178,23 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 				...updatedNames,
 				...Object.keys(activations).filter((name) => activations[name]?.state === "restart")
 			].some((name) => name === "dsh-crate");
-			const applyInPlace = hostCaps.selfReload && marketWaiting && !staleServer && reloadingSelf !== "failed";
+			const canReload = hostCaps.selfReload && (staleServer || marketWaiting) && reloadingSelf !== "failed";
+			const canRestart = restartEnabled && restartReachable && debuggerLatch === null && recovery === null && !marketGone;
+			const activationBusy = hostBusy || busyUrl !== null || updatingName !== null || removingName !== null;
+			const activationActions = /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ActivationActions, {
+				t,
+				action: canReload ? "reload" : canRestart ? "restart" : null,
+				label: t(canReload ? "staleReload" : staleServer ? "staleRestart" : "restartNow"),
+				working: reloadingSelf === "working" || restarting,
+				busy: activationBusy,
+				onImmediate: canReload ? applyNow : doRestart
+			}, JSON.stringify([
+				bootId,
+				version,
+				pendingRestart,
+				canReload,
+				canRestart
+			]));
 			const [moreOpen, setMoreOpen] = (0, react.useState)(false);
 			const [restartClosedAt, setRestartClosedAt] = (0, react.useState)(0);
 			const [offerClosed, setOfferClosed] = (0, react.useState)(() => {
@@ -19265,7 +19429,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 										const plugin = record.url === void 0 ? void 0 : data?.plugins.find((p) => p.url === record.url);
 										approveAndRetry(names, () => {
 											if (plugin !== void 0) doInstall(plugin);
-											else doUpdate(record.name, record.updateOptions?.force, record.updateOptions?.restore, record.updateOptions?.compatVersion, false, record.updateOptions?.eligibleVersion);
+											else doUpdate(record.name, record.updateOptions?.force, record.updateOptions?.restore, record.updateOptions?.compatVersion, false, record.updateOptions?.eligibleVersion, false, record.updateOptions?.compatibleVersion ?? null);
 										});
 									}
 								}),
@@ -19418,25 +19582,13 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 									className: Market_module_css_default.grow,
 									children: [
-										t("staleBanner").replace("{0}", "0.6.8").replace("{1}", version ?? ""),
+										t("staleBanner").replace("{0}", "0.6.9").replace("{1}", version ?? ""),
 										" ",
 										hostCaps.selfReload || restartEnabled && restartReachable && debuggerLatch === null ? null : t(hostCaps.desktop ? "staleDesktopHint" : "staleManualHint"),
 										reloadingSelf === "failed" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [" ", reloadError !== "" ? reloadError : t(hostCaps.desktop ? "staleDesktopHint" : "staleManualHint")] })
 									]
 								}),
-								hostCaps.selfReload && reloadingSelf !== "failed" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
-									variant: "primary",
-									size: "sm",
-									disabled: reloadingSelf === "working" || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null,
-									onClick: applyNow,
-									children: reloadingSelf === "working" ? t("restarting") : t("staleReload")
-								}) : restartEnabled && restartReachable && debuggerLatch === null && recovery === null && !marketGone && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
-									variant: "primary",
-									size: "sm",
-									disabled: restarting || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null,
-									onClick: doRestart,
-									children: restarting ? t("restarting") : t("staleRestart")
-								})
+								activationActions
 							]
 						}),
 						showMarketOffer && tab === "installed" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -19508,20 +19660,17 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconQuestionOutline14, { size: 14 })
 									})
 								}),
-								applyInPlace ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
-									variant: "primary",
-									size: "sm",
-									disabled: reloadingSelf === "working" || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null,
-									onClick: applyNow,
-									children: reloadingSelf === "working" ? t("restarting") : t("staleReload")
-								}) : restartEnabled && restartReachable && debuggerLatch === null && recovery === null && !marketGone && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
-									variant: "primary",
-									size: "sm",
-									disabled: restarting || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null,
-									onClick: doRestart,
-									children: restarting ? t("restarting") : t("restartNow")
-								}),
-								reloadingSelf === "failed" && reloadError !== "" && marketWaiting && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								!staleServer && activationActions,
+								staleServer && canReload && canRestart && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ActivationActions, {
+									t,
+									action: "restart",
+									label: t("restartNow"),
+									offerDefer: false,
+									working: restarting || reloadingSelf === "working",
+									busy: activationBusy,
+									onImmediate: doRestart
+								}, JSON.stringify([bootId, pendingRestart])),
+								!staleServer && reloadingSelf === "failed" && reloadError !== "" && marketWaiting && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: Market_module_css_default.grow,
 									children: reloadError
 								}),
@@ -19582,9 +19731,9 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 							onCheck: checkUpdateNotifications,
 							onEnabled: setUpdateNotificationsEnabled,
 							onIntervalHours: setUpdateNotificationsIntervalHours,
-							onUpdate: (name) => {
+							onUpdate: (name, selectedCompatibleVersion) => {
 								if (updates[name]?.restoreRequired === true) askRestore(name);
-								else doUpdate(name);
+								else doUpdate(name, false, false, void 0, false, void 0, false, selectedCompatibleVersion);
 							},
 							onOpenHost: openInHost === void 0 ? void 0 : (name) => openInHost.openBundle(name)
 						}),
@@ -19653,7 +19802,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 								setBuildsSkipped(null);
 								approveAndRetry(names, () => {
 									if (plugin !== void 0) doInstall(plugin);
-									else if (updateName !== void 0) doUpdate(updateName, updateOptions?.force, updateOptions?.restore, updateOptions?.compatVersion, false, updateOptions?.eligibleVersion);
+									else if (updateName !== void 0) doUpdate(updateName, updateOptions?.force, updateOptions?.restore, updateOptions?.compatVersion, false, updateOptions?.eligibleVersion, false, updateOptions?.compatibleVersion ?? null);
 								});
 							},
 							children: t("approveBuilds")
@@ -19711,10 +19860,10 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 								onClick: () => setRecoveryOpen(true),
 								children: t("recoveryOption")
 							}),
-							staleName !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
+							staleUpdate !== null && updates[staleUpdate.name]?.hostUpdateBlocked === void 0 && (staleUpdate.exactVersion !== void 0 && staleUpdate.compatibleVersion === void 0 || updates[staleUpdate.name]?.compatibleVersion === staleUpdate.compatibleVersion) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
 								variant: "primary",
 								size: "sm",
-								onClick: () => doUpdate(staleName, true),
+								onClick: () => doUpdate(staleUpdate.name, true, false, staleUpdate.exactVersion),
 								children: t("updateNow")
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Button, {
@@ -22042,7 +22191,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 										}), updatable && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 											type: "button",
 											className: Market_module_css_default.notesLink,
-											onClick: () => openNotes(name, status?.current ?? null, status?.latest ?? null, status?.eligibleVersion ?? status?.latest ?? null, repoUrl),
+											onClick: () => openNotes(name, status?.current ?? null, status?.latest ?? null, status === void 0 ? null : offeredUpdateVersion(status), repoUrl),
 											children: `${t("notesLink")} ›`
 										})]
 									}),
@@ -22375,7 +22524,31 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 													className: Market_module_css_default.metaTag,
 													title: t("hostUpdateHint"),
 													children: t("hostUpdateReady").replace("{0}", status.latest)
-												}) : status?.profileBlocked !== void 0 && status.updateAvailable !== true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+												}) : status?.hostUpdateBlocked !== void 0 && status.updateAvailable !== true ? (() => {
+													const held = status.heldUpdate === void 0 ? null : heldUpdateBeside(status.heldUpdate, t);
+													const blocked = status.hostUpdateBlocked;
+													return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [held !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+														label: held.title,
+														side: "top",
+														delayMs: 700,
+														portal: true,
+														maxWidth: 280,
+														children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+															className: Market_module_css_default.irowTrailingHint,
+															children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconClock, { size: 12 }), held.label]
+														})
+													}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+														label: hostUpdateBlockedText(blocked, t),
+														side: "top",
+														delayMs: 700,
+														portal: true,
+														maxWidth: 280,
+														children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+															className: Market_module_css_default.irowTrailingHint,
+															children: held !== null || blocked.requirement === null ? t("hostUpdateBlockedBeside") : t("hostUpdateBlockedBesideRequirement").replace("{0}", blocked.requirement)
+														})
+													})] });
+												})() : status?.profileBlocked !== void 0 && status.updateAvailable !== true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
 													label: profileBlockedText(status.profileBlocked, t),
 													side: "top",
 													delayMs: 700,
@@ -22407,7 +22580,7 @@ window.__ModuleLoader__.load({ id: "dsh-crate", factory: (require) => {
 															else doUpdate(name);
 														},
 														children: status.restoreRequired === true ? t("restoreOnline") : (() => {
-															const target = status.eligibleVersion ?? status.latest;
+															const target = offeredUpdateVersion(status);
 															return target != null && target !== "" ? `${t("update")} ${displayLatest(target)}` : t("update");
 														})()
 													})] });

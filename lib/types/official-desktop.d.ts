@@ -58,6 +58,12 @@ export interface ManagedBundleRow {
     source?: string;
     /** How `updateBundle` can replace it; absent when it cannot. */
     update?: 'registry' | 'git';
+    /**
+     * What older managers (0.14.x) say instead of `update`: whether `updateBundle`
+     * accepts the row. Only registry-spec rows under their own name are ever
+     * `true` there, so it stands for `update: 'registry'` and nothing else (#909).
+     */
+    updatable?: boolean;
 }
 export interface OfficialPluginManagerLike {
     installBundle(spec: string, options?: {

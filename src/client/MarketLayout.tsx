@@ -81,9 +81,10 @@ export function Masonry<T>({ items, render, maxColumns = 3, minColumns = 2, clas
       if (nodes.length !== dealt) return
       for (let slot = 0; slot < dealt; slot += 1) heights[slot * columns + column] = nodes[slot]!.getBoundingClientRect().height
     }
-    // jsdom 和没有布局引擎的环境测不到高度；全为 0 时保持交替分列，
-    // 不要用一组假高度把顺序打乱。
-    if (heights.every(height => height === 0)) return
+    // The original ranked deal is already in place when measurements are
+    // unavailable. Don't mark it settled: a later render can measure again.
+    // jsdom 和没有布局引擎的环境测不到高度，同样走这里，保持交替分列。
+    if (heights.some(height => !Number.isFinite(height) || height <= 0)) return
     const placed = balanceColumns(heights, columns)
     setBalanced({ items, columns, assign: placed })
   })

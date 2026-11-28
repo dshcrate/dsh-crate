@@ -12,6 +12,7 @@ import { StrictMode } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GithubRoutedImg, MarketSection, OwnerAvatar, resetHostCompatibilityCache, resetMarketPortalHost, resetThemePreviewCache } from '../../src/client/MarketSection.tsx'
+import * as clientVersion from '../../src/client/client-version.ts'
 import css from '../../src/client/Market.module.css'
 import { DISMISSED_HOST_STORAGE_KEY, resetDismissedHostCache } from '../../src/client/dismissed-host.ts'
 import { downloadStatsText } from '../../src/client/download-stats.ts'
@@ -180,6 +181,84 @@ describe('Issue #991 approval target and queue feedback', () => {
     expect(await screen.findByText(message)).toBeTruthy()
     expect(screen.queryByText(dict.agentQueueStaleNoUpdate)).toBeNull()
     expect(fetchCalls.some(call => call.path === '/dsh-crate/update')).toBe(false)
+  })
+})
+
+
+describe('host-compatible update offers (#1307)', () => {
+  const alternate = {
+    kind: 'npm', version: '1.0.0', current: '1.0.0', latest: '1.3.0', compatibleVersion: '1.1.0', updateAvailable: true,
+  }
+  const blocked = {
+    kind: 'npm', version: '1.0.0', current: '1.0.0', latest: '1.3.0', updateAvailable: false,
+    hostUpdateBlocked: { version: '1.3.0', requirement: '>=0.2.3-alpha.2', hostVersion: '0.2.2-rc.5' },
+  }
+
+  it.each(['row', 'batch', 'restored queue'])('uses the same exact compatible target through the %s, excluding blocked releases', async entry => {
+    if (entry === 'restored queue') localStorage.setItem('dshm-queue-v1', JSON.stringify([
+      { kind: 'update', name: 'dsh-loop', updateOptions: { compatibleVersion: '1.1.0' } },
+    ]))
+    stubFetch({
+      '/dsh-crate/installed': { profile: 'desktop', installed: { 'dsh-loop': '^1.0.0', 'dsh-other': '^1.0.0' }, live: [] },
+      '/dsh-crate/updates': { updates: { 'dsh-loop': alternate, 'dsh-other': blocked } },
+      '/dsh-crate/update': { ok: true },
+    })
+    render(<MarketSection {...props()} />)
+    if (entry !== 'restored queue') {
+      fireEvent.click(await screen.findByRole('button', { name: /Installed/ }))
+      expect(await screen.findByText('Needs DSH >=0.2.3-alpha.2')).toBeTruthy()
+      const button = screen.getByRole('button', { name: 'Update v1.1.0' })
+      expect(screen.queryByRole('button', { name: 'Update v1.3.0' })).toBeNull()
+      expect(screen.getByRole('button', { name: 'Update all (1)' })).toBeTruthy()
+      fireEvent.click(entry === 'row' ? button : screen.getByRole('button', { name: 'Update all (1)' }))
+    }
+    await waitFor(() => expect(fetchCalls.filter(call => call.path === '/dsh-crate/update').map(call => call.body))
+      .toEqual([{ name: 'dsh-loop', compatVersion: '1.1.0' }]), { timeout: 8000 })
+  })
+
+
+  it('pins the compatible version when retrying a stale response', async () => {
+    let attempts = 0
+    stubFetch({
+      '/dsh-crate/installed': { profile: 'web', installed: { 'dsh-loop': '^1.0.0' }, live: [] },
+      '/dsh-crate/updates': { updates: { 'dsh-loop': alternate } },
+      '/dsh-crate/update': () => ++attempts === 1
+        ? { ok: false, stale: true, error: 'too fresh — wait or update now' } : { ok: true },
+    })
+    render(<MarketSection {...props()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Installed/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Update v1.1.0' }))
+    fireEvent.click(await screen.findByRole('button', { name: en.updateNow }))
+    await waitFor(() => expect(fetchCalls.filter(call => call.path === '/dsh-crate/update').map(call => call.body)).toEqual([
+      { name: 'dsh-loop', compatVersion: '1.1.0' },
+      { name: 'dsh-loop', compatVersion: '1.1.0', force: true },
+    ]))
+  })
+
+  it('does not drain a restored compatible target after the target changes', async () => {
+    localStorage.setItem('dshm-queue-v1', JSON.stringify([
+      { kind: 'update', name: 'dsh-loop', updateOptions: { compatibleVersion: '1.1.0' } },
+    ]))
+    stubFetch({
+      '/dsh-crate/installed': { profile: 'desktop', installed: { 'dsh-loop': '^1.0.0' }, live: [] },
+      '/dsh-crate/updates': { updates: { 'dsh-loop': { ...alternate, compatibleVersion: '1.2.0' } } },
+    })
+    render(<MarketSection {...props()} />)
+    expect(await screen.findByText(en.updateTargetChanged)).toBeTruthy()
+    expect(fetchCalls.some(call => call.path === '/dsh-crate/update')).toBe(false)
+  })
+
+  it('does not call a blocked-only update current or offer Update all', async () => {
+    stubFetch({
+      '/dsh-crate/installed': { profile: 'desktop', installed: { 'dsh-loop': '^1.0.0' }, live: [] },
+      '/dsh-crate/updates': { updates: { 'dsh-loop': blocked } },
+    })
+    render(<MarketSection {...props()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Installed/ }))
+    expect(await screen.findByText('Needs DSH >=0.2.3-alpha.2')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Update all/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Update v1.3.0' })).toBeNull()
+    expect(screen.queryByTitle(en.upToDate)).toBeNull()
   })
 })
 
@@ -3236,7 +3315,7 @@ describe('MarketSection (jsdom)', () => {
 
   it('routes update-notes images through raw candidates instead of connecting directly (#1070)', () => {
     setGithubRoutes({ raw: ['https://bad.example', 'https://good.example', null], avatar: [null] })
-    const src = 'https://raw.githubusercontent.com/dshcrate/dsh-crate/main/shot.png'
+    const src = 'https://raw.githubusercontent.com/dshcrate/dshcrate/main/shot.png'
     const first = render(<GithubRoutedImg src={src} alt="shot" />)
     let img = first.container.querySelector('img')!
     expect(img.src).toContain(`https://bad.example/${src}`)
@@ -4104,6 +4183,7 @@ describe('MarketSection (jsdom)', () => {
           path === '/dsh-crate/registry' ? { source: 'live', registry: REGISTRY }
           : path === '/dsh-crate/installed' ? {
               profile: 'web', installed: { 'dsh-loop': '^1.0.0' }, live: [], disabled: [], groups: {}, groupOrder: [],
+              activation: { 'dsh-loop': { state: 'restart', reasons: [], hot: false, bundle: true } },
             }
           : path === '/dsh-crate/status' ? (() => {
               const busy = operationStarted && !updateSettled
@@ -4136,6 +4216,8 @@ describe('MarketSection (jsdom)', () => {
       // publish busy=false, which is the real ordering reported in #440.
       await vi.advanceTimersByTimeAsync(2100)
       expect(busyStatusObserved).toBe(true)
+      expect((screen.getByRole('button', { name: en.restartNow }) as HTMLButtonElement).disabled).toBe(true)
+      expect((screen.getByRole('button', { name: en.applyOnRestart }) as HTMLButtonElement).disabled).toBe(false)
       updateSettled = true
       resolveUpdate(new Response(JSON.stringify({
         ok: true,
@@ -4145,9 +4227,8 @@ describe('MarketSection (jsdom)', () => {
       }), { status: 200 }))
 
       await vi.waitFor(() => {
-        expect(screen.getAllByText(re(en.restartBanner)).length).toBeGreaterThan(0)
+        expect((screen.getByRole('button', { name: en.restartNow }) as HTMLButtonElement).disabled).toBe(false)
       })
-      expect((screen.getByRole('button', { name: en.restartNow }) as HTMLButtonElement).disabled).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -10026,6 +10107,7 @@ describe('standing restart notice for host-reported pending plugins', () => {
       // The fact that a restart is needed is still stated — only the impossible
       // action goes. A banner that vanished would hide the fact itself.
       expect(screen.queryByRole('button', { name: en.restartNow })).toBeNull()
+      expect(screen.getByRole('button', { name: en.applyOnRestart })).toBeTruthy()
       // What the hint SAYS is pinned below, on the pure function that picks it.
     })
 
@@ -10047,29 +10129,90 @@ describe('standing restart notice for host-reported pending plugins', () => {
   })
 })
 
-describe('a shell that runs the host as its child process owns the restart', () => {
+describe('deferring activation and confirming an immediate market reload or host restart', () => {
   // A Tauri/Electron shell that spawned `dsh web` restarts by stopping the
   // process it started and relaunching its own window. The market's own route
   // spawns a detached helper instead — a second lifecycle competing with the
   // shell's for one port. Where the shell publishes its bridge, the button
   // asks the shell and never touches the host route.
   const restartError = 'Restart is unavailable in this fixture'
-  function stubStatus(extra: Record<string, unknown> = {}) {
-    const installed = { 'dsh-loop': '^1.0.0' }
+  function stubStatus(extra: Record<string, unknown> = {}, name = 'dsh-loop') {
+    const installed = { [name]: '^1.0.0' }
     stubFetch({
       '/dsh-crate/installed': {
         profile: 'web', installed, live: [],
-        activation: { 'dsh-loop': { state: 'restart', reasons: ['in the bundle layer'], bundle: true, hot: false } },
+        activation: { [name]: { state: 'restart', reasons: ['in the bundle layer'], bundle: true, hot: false } },
       },
       '/dsh-crate/status': { active: false, busy: false, pnpm: true, boot: 'boot-1', restart: true, installed, ...extra },
       '/dsh-crate/updates': { updates: {} },
       // End the request: a rejected fetch starts restart polling that outlives
       // this test and can reach a later test's fetch mock.
       '/dsh-crate/restart': { __status: 503, error: restartError },
+      '/dsh-crate/reload-self': { __status: 422, error: 'Reload is unavailable in this fixture' },
     })
   }
 
+  const lifecyclePosts = () => fetchCalls.filter(call =>
+    call.method === 'POST' && ['/dsh-crate/reload-self', '/dsh-crate/restart'].includes(call.path))
+  async function confirmRestart() {
+    fireEvent.click(screen.getByRole('button', { name: en.restartNow }))
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(dialog.getByText(en.restartHostWarning)).toBeTruthy()
+    expect(lifecyclePosts()).toEqual([])
+    fireEvent.click(dialog.getByRole('button', { name: en.restartNow }))
+  }
+
   afterEach(() => { Reflect.deleteProperty(window, '__dshHostShell') })
+
+  it.each(['dsh-loop', 'dsh-crate'])('defers activation of %s while preserving the outstanding change (#1321)', async name => {
+    const shellRestart = vi.fn()
+    Reflect.set(window, '__dshHostShell', { restart: shellRestart })
+    stubStatus({ selfReload: true }, name)
+    render(<MarketSection {...props()} />)
+    await showRestartBanner()
+
+    fireEvent.click(screen.getByRole('button', { name: en.applyOnRestart }))
+    expect(await screen.findByText(en.activationDeferred)).toBeTruthy()
+    expect(screen.getByText(re(en.restartBanner))).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(lifecyclePosts()).toEqual([])
+    expect(shellRestart).not.toHaveBeenCalled()
+  })
+
+  it('offers one default and preserves both immediate actions for a stale market and pending plugins (#1321)', async () => {
+    // The unbundled client has no build version. Simulate a page newer than
+    // the running server, keeping the real banner and capability selection.
+    const behind = vi.spyOn(clientVersion, 'serverIsBehind').mockImplementation(version => version === '1.0.0')
+    try {
+      stubStatus({ version: '1.0.0', selfReload: true })
+      render(<MarketSection {...props()} />)
+      await showRestartBanner()
+      const stale = document.querySelector<HTMLElement>('[data-dshm-stale-server]')!
+      expect(screen.getByRole('button', { name: en.applyOnRestart })).toBe(
+        within(stale).getByRole('button', { name: en.applyOnRestart }))
+
+      const pending = screen.getByText(re(en.restartBanner)).parentElement!
+      fireEvent.click(within(pending).getByRole('button', { name: en.restartNow }))
+      const restartDialog = within(await screen.findByRole('dialog'))
+      expect(restartDialog.getByText(en.restartHostWarning)).toBeTruthy()
+      expect(lifecyclePosts()).toEqual([])
+      fireEvent.click(restartDialog.getByRole('button', { name: en.cancel }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(lifecyclePosts()).toEqual([])
+
+      fireEvent.click(within(stale).getByRole('button', { name: en.staleReload }))
+      const dialog = within(await screen.findByRole('dialog'))
+      expect(dialog.getByText(en.reloadMarketWarning)).toBeTruthy()
+      expect(lifecyclePosts()).toEqual([])
+      fireEvent.click(dialog.getByRole('button', { name: en.cancel }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(lifecyclePosts()).toEqual([])
+
+      fireEvent.click(within(stale).getByRole('button', { name: en.staleReload }))
+      fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: en.reloadMarketNow }))
+      await waitFor(() => expect(lifecyclePosts().map(call => call.path)).toEqual(['/dsh-crate/reload-self']))
+    } finally { behind.mockRestore() }
+  })
 
   it('asks the shell, and never posts to the host restart route', async () => {
     const shellRestart = vi.fn()
@@ -10079,6 +10222,11 @@ describe('a shell that runs the host as its child process owns the restart', () 
     await showRestartBanner()
 
     fireEvent.click(screen.getByRole('button', { name: en.restartNow }))
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(shellRestart).not.toHaveBeenCalled()
+    fireEvent.click(dialog.getByRole('button', { name: en.cancel }))
+    expect(shellRestart).not.toHaveBeenCalled()
+    await confirmRestart()
 
     await waitFor(() => { expect(shellRestart).toHaveBeenCalledTimes(1) })
     expect(fetchCalls.some(call => call.path === '/dsh-crate/restart')).toBe(false)
@@ -10089,7 +10237,7 @@ describe('a shell that runs the host as its child process owns the restart', () 
     render(<MarketSection {...props()} />)
     await showRestartBanner()
 
-    fireEvent.click(screen.getByRole('button', { name: en.restartNow }))
+    await confirmRestart()
 
     await waitFor(() => {
       expect(fetchCalls.some(call => call.path === '/dsh-crate/restart' && call.method === 'POST')).toBe(true)
@@ -10105,7 +10253,7 @@ describe('a shell that runs the host as its child process owns the restart', () 
     render(<MarketSection {...props()} />)
     await showRestartBanner()
 
-    fireEvent.click(screen.getByRole('button', { name: en.restartNow }))
+    await confirmRestart()
 
     await waitFor(() => {
       expect(fetchCalls.some(call => call.path === '/dsh-crate/restart' && call.method === 'POST')).toBe(true)
@@ -10170,6 +10318,7 @@ describe('boot-scoped update reminder dismissals (#419)', () => {
     stubUpdateReminders()
     render(<MarketSection {...props()} />)
     await openInstalledTab()
+    await screen.findByRole('button', { name: /Update all \(2\)/ })
     await ignoreRowUntilRestart('dsh-loop')
     await ignoreRowUntilRestart('dsh-notify')
     // The market's own new version keeps the dot lit until its notice is closed.
@@ -10192,6 +10341,7 @@ describe('boot-scoped update reminder dismissals (#419)', () => {
     stubUpdateReminders('boot-1')
     const first = render(<MarketSection {...props()} />)
     await openInstalledTab()
+    await screen.findByRole('button', { name: /Update all \(2\)/ })
     await ignoreRowUntilRestart('dsh-loop')
     await ignoreRowUntilRestart('dsh-notify')
     closeMarketOffer()
@@ -10322,6 +10472,8 @@ describe('boot-scoped update reminder dismissals (#419)', () => {
     })
     render(<MarketSection {...props()} />)
     fireEvent.click(await screen.findByRole('button', { name: /^Installed/ }))
+    // The update response must settle before its row menu is opened.
+    await screen.findByRole('button', { name: /Update all \(2\)/ })
     let row: HTMLElement | null = await screen.findByText('dsh-loop')
     while (row !== null && within(row).queryByRole('button', { name: en.groupMore }) === null) row = row.parentElement
     fireEvent.click(within(row!).getByRole('button', { name: en.groupMore }))
@@ -10449,11 +10601,12 @@ describe('a loader-id clash becomes a decision in the activity panel', () => {
     error: 'PROSE-FALLBACK-FOR-LOGS',
   }
 
-  /** Install the first card, then follow its marker into the panel. */
-  const installFirstCard = async () => {
+  /** Install the named candidate, independent of the grid's column placement. */
+  const installNotifyCard = async () => {
     render(<MarketSection {...props()} />)
-    await screen.findByText('dsh-loop')
-    fireEvent.click(screen.getAllByRole('button', { name: en.install })[0])
+    const card = (await screen.findByRole('button', { name: 'dsh-notify' })).closest<HTMLElement>(`.${css.card}`)
+    expect(card).not.toBeNull()
+    fireEvent.click(within(card!).getByRole('button', { name: en.install }))
     fireEvent.click(await screen.findByRole('button', { name: en.confirmInstall }))
     // The card must say something: one that looks untouched invites pressing
     // Install again, which is how the same clash gets hit twice.
@@ -10463,7 +10616,7 @@ describe('a loader-id clash becomes a decision in the activity panel', () => {
 
   it('names the clashing plugin, and keeps entry ids out of the decision', async () => {
     stubFetch({ '/dsh-crate/install': clash })
-    await installFirstCard()
+    await installNotifyCard()
 
     expect(screen.getByText('dsh-tui-core')).toBeTruthy()
     // Entry ids are evidence, not part of the choice: a reader deciding which
@@ -10489,7 +10642,7 @@ describe('a loader-id clash becomes a decision in the activity panel', () => {
       { owner: 'dsh-tui-core', ids: ['storage'] },
       { owner: 'dsh-panel-kit', ids: ['panel'] },
     ] } })
-    await installFirstCard()
+    await installNotifyCard()
 
     // Both owners, each with only the id it actually declares — the whole
     // point of grouping rather than listing every id against the first name.
@@ -10507,7 +10660,7 @@ describe('a loader-id clash becomes a decision in the activity panel', () => {
     // the list IS the consequence: the side that loses is struck through and
     // tagged, so the choice can be read without parsing a sentence.
     stubFetch({ '/dsh-crate/install': clash })
-    await installFirstCard()
+    await installNotifyCard()
 
     // Scoped to the decision: the plugin name also appears on the card.
     const decision = screen.getByText(re(en.conflictBody)).parentElement as HTMLElement
@@ -10525,7 +10678,7 @@ describe('a loader-id clash becomes a decision in the activity panel', () => {
     // Re-pressing the control that opened a popover is the one dismissal
     // route nobody looks for, so it cannot be the only one.
     stubFetch({ '/dsh-crate/install': clash })
-    await installFirstCard()
+    await installNotifyCard()
 
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByText(re(en.conflictBody))).toBeNull())
@@ -10546,7 +10699,7 @@ describe('a loader-id clash becomes a decision in the activity panel', () => {
     // whole safety of this screen: confirming without touching it must not
     // remove a working plugin.
     stubFetch({ '/dsh-crate/install': clash, '/dsh-crate/uninstall': { ok: true, installed: {} } })
-    await installFirstCard()
+    await installNotifyCard()
 
     expect((screen.getByRole('radio', { name: re(en.conflictKeep) }) as HTMLInputElement).checked).toBe(true)
     expect((screen.getByRole('radio', { name: re(en.conflictSwap) }) as HTMLInputElement).checked).toBe(false)
@@ -10565,7 +10718,7 @@ describe('a loader-id clash becomes a decision in the activity panel', () => {
       },
       '/dsh-crate/uninstall': { ok: true, hot: true, installed: {} },
     })
-    await installFirstCard()
+    await installNotifyCard()
 
     // The safe outcome is preselected, so the swap only happens once the
     // user actively moves off it.
@@ -10591,7 +10744,7 @@ describe('a loader-id clash becomes a decision in the activity panel', () => {
         return removes === 1 ? { ok: true, installed: {} } : { ok: false, error: 'EBUSY' }
       },
     })
-    await installFirstCard()
+    await installNotifyCard()
 
     fireEvent.click(screen.getByRole('radio', { name: re(en.conflictSwap) }))
     fireEvent.click(screen.getByRole('button', { name: en.confirm }))

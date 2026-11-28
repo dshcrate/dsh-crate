@@ -4,8 +4,10 @@
  * dist-tag for registry installs — with a TTL cache.
  */
 import { type Channel } from './channels.ts';
+import { type NpmManifestFacts } from './discovery-compatibility.ts';
 import { type CatalogReleaseSource } from './release-updates.ts';
 import type { GitToNpmMigration, NpmRenameMigration } from './source-migration.ts';
+import { versionMaturity, type NpmPackument } from './release-candidates.ts';
 export interface UpdateStatus {
     /**
      * `generation` is a `link:` the desktop host wrote (#497): the host
@@ -29,6 +31,14 @@ export interface UpdateStatus {
     checkFailed?: true;
     /** Exact mature npm stable target for Desktop; `latest` remains the registry tag. */
     eligibleVersion?: string;
+    /** Exact older release confirmed to support the running host. */
+    compatibleVersion?: string;
+    /** The offered release requires a different host; no eligible compatible upgrade is known. */
+    hostUpdateBlocked?: {
+        version: string;
+        requirement: string | null;
+        hostVersion: string;
+    };
     /**
      * HEAD of the chosen line for a floating git install whose repository has
      * moved without publishing: newer commits exist (current ≠ latest) but the
@@ -115,6 +125,19 @@ export interface UpdateStatus {
      */
     channelSwitch?: string;
 }
+/** Compatibility facts for the running host, not the installed plugin. */
+export interface UpdateHostCompatibility {
+    version: string;
+    packages: ReadonlySet<string>;
+    lookupVersion(name: string, version: string): Promise<NpmManifestFacts | null>;
+}
+/**
+ * Search a verified package history only after the ordinary update target has
+ * been proved incompatible. An unknown history is not the same as no match.
+ * Cap the search at the target already selected by release-age/channel policy;
+ * it must never turn an update into a downgrade or leave that release line.
+ */
+export declare function compatibleUpdateInHistory(packument: NpmPackument, name: string, installed: string, target: string, registryLatest: string | null, host: Pick<UpdateHostCompatibility, 'version' | 'packages'>, stableOnly: boolean, maturity?: Parameters<typeof versionMaturity>[3], now?: number): string | null | undefined;
 /**
  * Whether a direct dependency is a plugin the update channel can apply (#793).
  *
@@ -296,4 +319,5 @@ catalogNpmByRepo?: ReadonlyMap<string, string>,
 options?: {
     holdYoungReleases?: boolean;
     releaseSources?: ReadonlyMap<string, CatalogReleaseSource>;
+    hostCompatibility?: UpdateHostCompatibility;
 }): Promise<Record<string, UpdateStatus>>;

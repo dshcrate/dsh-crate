@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import { Button, Menu, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './Market.module.css'
+import { ActivationActions } from './ActivationActions.tsx'
 import { OperationsPanel } from './OperationsPanel.tsx'
 import { rememberDismissedHostId } from './dismissed-host.ts'
 import { clearSettled, drop } from './operations.ts'
@@ -52,7 +53,7 @@ type MarketHeadCtx = { props: MarketSectionProps }
     'restartHold' | 'restartReachable' | 'restarting' | 'restoreErrors' | 'rollingBack' |
     'setBuildsSkipped' | 'setCat' | 'setOperationsOpen' | 'setQ' | 'setRecords' | 'setRecoveryOpen' |
     'setRestartNoticeDismissed' | 'setRestoreConfirmOpen' | 'setSidebarTipDismissed' | 'setTab' |
-    'showSidebarTip' | 'sidebarTipError' | 'sidebarTipSaving' | 'staleName' | 'startupRepair' |
+    'showSidebarTip' | 'sidebarTipError' | 'sidebarTipSaving' | 'staleUpdate' | 'startupRepair' |
     'supervisor' | 'surface' | 't' | 'tab' | 'themeSnap' | 'uiLocale' | 'updates' | 'updatingName' |
     'version' | 'hostCaps' | 'restartNames' | 'updatedNames' | 'activations'>
   & Pick<MarketSyncCtx, 'fixEnv'>
@@ -84,7 +85,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
     restartEnabled, restartHold, restartReachable, restarting, restoreErrors, rollingBack,
     runQueuedNow, setBuildsSkipped, setCat, setOperationsOpen, setQ, setRecords, setRecoveryOpen,
     setRestartNoticeDismissed, setRestoreConfirmOpen, setSidebarTipDismissed, setTab, shadowSummary,
-    showHostPending, showMarketWait, showSidebarTip, sidebarTipError, sidebarTipSaving, staleName,
+    showHostPending, showMarketWait, showSidebarTip, sidebarTipError, sidebarTipSaving, staleUpdate,
     startupRepair, supervisor, surface, t, tab, themeSnap, uiLocale, updateCheckFailed, updates,
     updatingName, version, marketOffer, takeMarketOffer, hostCaps, restartNames, updatedNames, activations,
   } = c
@@ -107,12 +108,22 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
       setReloadingSelf('failed')
     }, () => { setReloadError(''); setReloadingSelf('failed') })
   }
-  // The market itself is among the changes waiting for a restart, and this
-  // host can swap it in place: offer that instead of a restart (or on a
-  // Desktop that cannot restart, instead of nothing).
   const marketWaiting = [...restartNames, ...updatedNames, ...Object.keys(activations).filter(name => activations[name]?.state === 'restart')]
     .some(name => name === 'dsh-crate')
-  const applyInPlace = hostCaps.selfReload && marketWaiting && !staleServer && reloadingSelf !== 'failed'
+  const canReload = hostCaps.selfReload && (staleServer || marketWaiting) && reloadingSelf !== 'failed'
+  const canRestart = restartEnabled && restartReachable && debuggerLatch === null && recovery === null && !marketGone
+  const activationBusy = hostBusy || busyUrl !== null || updatingName !== null || removingName !== null
+  const activationActions = (
+    <ActivationActions
+      key={JSON.stringify([bootId, version, pendingRestart, canReload, canRestart])}
+      t={t}
+      action={canReload ? 'reload' : canRestart ? 'restart' : null}
+      label={t(canReload ? 'staleReload' : staleServer ? 'staleRestart' : 'restartNow')}
+      working={reloadingSelf === 'working' || restarting}
+      busy={activationBusy}
+      onImmediate={canReload ? applyNow : doRestart}
+    />
+  )
   // Four everyday tabs in the row; the rarely used ones (Hidden, Advanced)
   // and the rarely used actions sit behind ···.
   const [moreOpen, setMoreOpen] = useState(false)
@@ -302,7 +313,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
               const plugin = record.url === undefined ? undefined : data?.plugins.find(p => p.url === record.url)
               approveAndRetry(names, () => {
                 if (plugin !== undefined) doInstall(plugin)
-                else doUpdate(record.name, record.updateOptions?.force, record.updateOptions?.restore, record.updateOptions?.compatVersion, false, record.updateOptions?.eligibleVersion)
+                else doUpdate(record.name, record.updateOptions?.force, record.updateOptions?.restore, record.updateOptions?.compatVersion, false, record.updateOptions?.eligibleVersion, false, record.updateOptions?.compatibleVersion ?? null)
               })
             }}
           />
@@ -395,8 +406,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
         )}
         {/* The page is newer than the server half still running: the market
             updated itself and DSH has not reloaded it. Routes the page relies
-            on may not exist yet, so say so, with the one action that fixes
-            it where the host allows one. */}
+            on may not exist until the next host start. */}
         {staleServer && (
           <div className={css.banner} data-dshm-stale-server>
             <IconRefreshOutline14 size={14} className={css.bannerIcon} />
@@ -408,21 +418,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
                 : t(hostCaps.desktop ? 'staleDesktopHint' : 'staleManualHint')}
               {reloadingSelf === 'failed' && <> {reloadError !== '' ? reloadError : t(hostCaps.desktop ? 'staleDesktopHint' : 'staleManualHint')}</>}
             </span>
-            {hostCaps.selfReload && reloadingSelf !== 'failed' ? (
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={reloadingSelf === 'working' || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null}
-                onClick={applyNow}
-              >{reloadingSelf === 'working' ? t('restarting') : t('staleReload')}</Button>
-            ) : restartEnabled && restartReachable && debuggerLatch === null && recovery === null && !marketGone && (
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={restarting || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null}
-                onClick={doRestart}
-              >{restarting ? t('restarting') : t('staleRestart')}</Button>
-            )}
+            {activationActions}
           </div>
         )}
         {/* The market's own new version: named, with what updating does, on
@@ -468,22 +464,16 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
             >
               <span className={css.bannerHint}><IconQuestionOutline14 size={14} /></span>
             </Tooltip>
-            {applyInPlace ? (
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={reloadingSelf === 'working' || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null}
-                onClick={applyNow}
-              >{reloadingSelf === 'working' ? t('restarting') : t('staleReload')}</Button>
-            ) : restartEnabled && restartReachable && debuggerLatch === null && recovery === null && !marketGone && (
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={restarting || hostBusy || busyUrl !== null || updatingName !== null || removingName !== null}
-                onClick={doRestart}
-              >{restarting ? t('restarting') : t('restartNow')}</Button>
+            {!staleServer && activationActions}
+            {/* Reloading the market above cannot apply another plugin's host restart. */}
+            {staleServer && canReload && canRestart && (
+              <ActivationActions
+                key={JSON.stringify([bootId, pendingRestart])}
+                t={t} action="restart" label={t('restartNow')} offerDefer={false}
+                working={restarting || reloadingSelf === 'working'} busy={activationBusy} onImmediate={doRestart}
+              />
             )}
-            {reloadingSelf === 'failed' && reloadError !== '' && marketWaiting && <span className={css.grow}>{reloadError}</span>}
+            {!staleServer && reloadingSelf === 'failed' && reloadError !== '' && marketWaiting && <span className={css.grow}>{reloadError}</span>}
             <button
               type="button"
               className={css.bannerClose}
@@ -533,9 +523,9 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
           onCheck={checkUpdateNotifications}
           onEnabled={setUpdateNotificationsEnabled}
           onIntervalHours={setUpdateNotificationsIntervalHours}
-          onUpdate={name => {
+          onUpdate={(name, selectedCompatibleVersion) => {
             if (updates[name]?.restoreRequired === true) askRestore(name)
-            else doUpdate(name)
+            else doUpdate(name, false, false, undefined, false, undefined, false, selectedCompatibleVersion)
           }}
           onOpenHost={openInHost === undefined ? undefined : name => openInHost.openBundle(name)}
         />}
@@ -594,7 +584,7 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
               setBuildsSkipped(null)
               approveAndRetry(names, () => {
                 if (plugin !== undefined) doInstall(plugin)
-                else if (updateName !== undefined) doUpdate(updateName, updateOptions?.force, updateOptions?.restore, updateOptions?.compatVersion, false, updateOptions?.eligibleVersion)
+                else if (updateName !== undefined) doUpdate(updateName, updateOptions?.force, updateOptions?.restore, updateOptions?.compatVersion, false, updateOptions?.eligibleVersion, false, updateOptions?.compatibleVersion ?? null)
               })
             }}
           >{t('approveBuilds')}</Button>
@@ -659,8 +649,10 @@ export function MarketHead({ c }: { c: MarketHeadCtx }) {
                 was reported as "there is no such button" — @Dave-12138
                 spotted it in the reporter's own screenshot: it was there,
                 it just did not look like one. */}
-            {staleName !== null && (
-              <Button variant="primary" size="sm" onClick={() => doUpdate(staleName, true)}>{t('updateNow')}</Button>
+            {staleUpdate !== null && updates[staleUpdate.name]?.hostUpdateBlocked === undefined
+              && (staleUpdate.exactVersion !== undefined && staleUpdate.compatibleVersion === undefined
+                || updates[staleUpdate.name]?.compatibleVersion === staleUpdate.compatibleVersion) && (
+              <Button variant="primary" size="sm" onClick={() => doUpdate(staleUpdate.name, true, false, staleUpdate.exactVersion)}>{t('updateNow')}</Button>
             )}
             {/* The banner text told users to export the log; now it IS the button (#84). */}
             <Button
